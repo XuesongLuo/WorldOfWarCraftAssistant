@@ -1,0 +1,10 @@
+{
+  "$schema": "./toolchain.schema.json",
+  "architecture": "x64",
+  "cmake": "3.31.6-msvc6",
+  "msvcCompiler": "19.44.35229.0",
+  "msvcTools": "14.44.35207",
+  "node": "24.19.0",
+  "visualStudioBuildTools": "17.14.37710.0",
+  "windowsSdk": "10.0.26100.0"
+}

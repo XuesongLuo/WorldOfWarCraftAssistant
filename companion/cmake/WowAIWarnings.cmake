@@ -1,0 +1,8 @@
+function(wowai_enable_warnings target_name)
+    if(MSVC)
+        target_compile_options(${target_name} PRIVATE /W4 /permissive- /EHsc /utf-8)
+        target_compile_definitions(${target_name} PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+    else()
+        target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()

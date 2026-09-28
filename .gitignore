@@ -1,0 +1,32 @@
+# Local toolchains and build output
+.tools/
+out/
+build/
+CMakeUserPresets.json
+
+# Node/TypeScript
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Editors and operating system
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Local configuration and sensitive artifacts
+.env
+.env.*
+!.env.example
+*.log
+*.dmp
+*.png
+*.jpg
+*.jpeg
+*.webp
+local-data/

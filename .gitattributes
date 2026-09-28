@@ -1,0 +1,7 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Markdown uses two trailing spaces for intentional hard line breaks.
+*.md whitespace=-trailing-space

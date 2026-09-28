@@ -1,0 +1,24 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-cpp:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Configure
+        run: cmake --preset windows-msvc-debug
+      - name: Build
+        run: cmake --build --preset windows-msvc-debug
+      - name: Test
+        run: ctest --preset windows-msvc-debug --output-on-failure
+      - name: Repository checks
+        shell: pwsh
+        run: ./scripts/verify-repository.ps1
