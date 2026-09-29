@@ -1,10 +1,10 @@
 # World of Warcraft AI Assistant 开发进度与 Agent 执行手册
 
-> 文档版本：v0.3  
+> 文档版本：v0.5  
 > 当前状态：开发中  
 > 当前里程碑：M0 技术可行性 PoC  
-> 当前步骤：STEP-004 跨语言契约与协议模拟器  
-> 更新日期：2026-09-28  
+> 当前步骤：STEP-005 WoW 插件最小面板  
+> 更新日期：2026-09-29  
 > 产品需求：[WorldOfWarcraftAssistant-PRD.md](./WorldOfWarcraftAssistant-PRD.md)  
 > 技术基线：[WorldOfWarcraftAssistant-Technical-Design.md](./WorldOfWarcraftAssistant-Technical-Design.md)  
 
@@ -88,7 +88,7 @@ Agent 每次开始工作时必须按以下顺序执行：
 | 模块 | 实现进度 | 验证进度 | 当前结论 |
 |---|---:|---:|---|
 | DEP. 依赖与供应链 | 1/10 | 0/10 | 工具链基线已登记，待 CI 对比 |
-| A. 技术基线与仓库工程化 | 8/14 | 7/14 | STEP-002、STEP-003 完成；指针推进到 STEP-004 |
+| A. 技术基线与仓库工程化 | 10/14 | 9/14 | STEP-004 完成；指针推进到 STEP-005 |
 | B. WoW 插件端 | 0/10 | 0/10 | 未开始 |
 | C. Windows C++ 伴侣程序 | 0/13 | 0/13 | 未开始 |
 | D. 游戏画面捕获 | 0/9 | 0/9 | 未开始 |
@@ -96,16 +96,16 @@ Agent 每次开始工作时必须按以下顺序执行：
 | F. 游戏知识与资料层 | 0/9 | 0/9 | 未开始 |
 | G. 视觉融合与交互联动 | 0/10 | 0/10 | 未开始 |
 | H. 本地数据、设置与安全 | 0/8 | 0/8 | 未开始 |
-| I. 测试、合规与质量保障 | 0/14 | 0/14 | 未开始 |
+| I. 测试、合规与质量保障 | 2/14 | 2/14 | JSON 契约测试和确定性协议模拟器已完成 |
 | J. 打包、更新与发布 | 0/11 | 0/11 | 未开始 |
 
 ### 3.3 当前执行指针
 
-- 当前步骤：`STEP-004`
-- 下一可执行步骤：`STEP-004`
-- 当前负责人：构建与发布负责人
+- 当前步骤：`STEP-005`
+- 下一可执行步骤：`STEP-005`
+- 当前负责人：WoW 插件负责人
 - 开始时间：2026-09-28
-- 最近验证：2026-09-29，STEP-003 GitHub Actions run 36561787192 全部通过
+- 最近验证：2026-09-29，STEP-004 GitHub Actions run 36565531127 全部通过
 - 当前阻断：无
 
 ## 4. 标准验证命令
@@ -210,7 +210,7 @@ WoW 插件验证必须使用正式服客户端的人工测试记录，不得用�
 产物：`contracts/`、协议说明、模拟器、契约测试样本。
 
 - [x] 实现完成
-- [ ] 验证通过：C++ 与 TypeScript 对同一组正反例结论一致
+- [x] 验证通过：C++ 与 TypeScript 对同一组正反例结论一致
 
 ### STEP-005：WoW 插件最小面板
 
@@ -630,6 +630,18 @@ Agent/会话：
 技术文档复选框同步：是/否（原因）
 ```
 
+日期：2026-09-29 20:08  
+Agent/会话：Codex  
+当前步骤：STEP-004（已完成，指针推进至 STEP-005）  
+本次完成：定义协议 1.0 的 AssistantRequest、AssistantResponse、错误对象和 JSONL 信封；实现严格 UTF-8/尺寸/超时/版本/序号验证、C++ 与 TypeScript 类型绑定、确定性双端模拟器和共享契约样本  
+修改文件：`contracts/`、`companion/include/wowai/codex/`、`companion/src/codex/`、`companion/tests/codex_protocol/`、`codex-host/src/protocol/`、`codex-host/src/runtime/`、测试与验证文档  
+执行的验证：Prettier、ESLint、TypeScript strict、13/13 Vitest、esbuild；Debug/Release CMake、8/8 Catch2、仓库/依赖门禁；GitHub Actions run 36565531127  
+验证结果：本地和远端全部通过；C++ 与 TypeScript 对共享合法/非法样本结论一致，乱码、超长、乱序及版本不匹配均安全拒绝  
+未完成事项：真实 Codex App Server 和进程生命周期仍按计划由 STEP-009 实现  
+风险或阻断：无  
+下一步建议：按 STEP-005 实现 WoW 插件最小面板、SavedVariables、离线占位和 Lua 错误隔离  
+技术文档复选框同步：是（A-05、A-14、I-02、I-03 已完成并验证）
+
 日期：2026-09-29 19:30  
 Agent/会话：Codex  
 当前步骤：STEP-003（已完成，指针推进至 STEP-004）  
@@ -738,6 +750,7 @@ docs/
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
+| v0.5 | 2026-09-29 | STEP-004 跨语言契约、版本化 JSONL 协议和确定性模拟器完成并通过 GitHub Actions；执行指针推进到 STEP-005 |
 | v0.4 | 2026-09-29 | STEP-002 与 STEP-003 全部完成并通过 GitHub Actions；关闭 BLOCK-002，执行指针推进到 STEP-004 |
 | v0.3 | 2026-09-28 | 完成 STEP-002 本地实现与验证；记录 BLOCK-002，等待配置 remote 后执行 CI，当前指针不推进 |
 | v0.2 | 2026-09-28 | 完成 STEP-001：登记开发环境、6 份 M0 ADR 草案、风险清单和自动验证证据；执行指针推进到 STEP-002 |

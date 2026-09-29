@@ -28,6 +28,10 @@
 - C++ Release: configure, build, repository verification, and 8/8 Catch2 tests passed.
 - Dependency validation: npm audit reported 0 vulnerabilities; SBOM/NOTICE generation and unused-DLL checks passed.
 
-## Remote status
+## Remote clean-run result
 
-GitHub Actions clean-run validation is pending for this change. The STEP-004 execution pointer remains in place until the remote run succeeds.
+- Commit: `79dd1ba6003fa756a63d67a8b26fafae59c306e6`.
+- Workflow: <https://github.com/XuesongLuo/WorldOfWarCraftAssistant/actions/runs/36565531127>.
+- Runner: `windows-2022`.
+- Result: success.
+- Passed stages: locked dependency bootstrap, clean npm restore, TypeScript formatting/lint/typecheck/tests/bundle, CMake configure/build/tests, dependency and vulnerability checks, and repository checks.
