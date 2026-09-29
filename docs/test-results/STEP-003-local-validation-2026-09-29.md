@@ -33,6 +33,12 @@ All tools are stored below ignored project `.tools/`; no global npm or vcpkg ins
 - CycloneDX and transitive license inventories generated successfully under `out/dependency-artifacts/`.
 - No unused sqlite3, spdlog, or fmt DLL entered the companion build output.
 
-Remote clean-run validation remains pending until the STEP-003 commit completes GitHub Actions.
+## Remote clean-run result
 
-The first STEP-003 CI attempt passed bootstrap, `npm ci`, formatting, lint, typecheck, tests, and bundling, then exposed that `Invoke-CMake.ps1` only knew the workstation's private Build Tools path. The wrapper now falls back to the runner-provided `cmake.exe`; the configured generator and vcpkg baseline remain fixed.
+- Commit: `34195350739b42f5c44afc165ff83e7d7fb67b99`
+- Workflow: <https://github.com/XuesongLuo/WorldOfWarCraftAssistant/actions/runs/36561787192>
+- Runner: `windows-2022`
+- Result: success
+- Passed steps: project tool bootstrap, `npm ci`, TypeScript verification, vcpkg configure, C++ build, C++ tests, dependency/vulnerability checks, and repository checks.
+
+The first STEP-003 CI attempt passed bootstrap, `npm ci`, formatting, lint, typecheck, tests, and bundling, then exposed that `Invoke-CMake.ps1` only knew the workstation's private Build Tools path. The wrapper now falls back to the runner-provided `cmake.exe`; the configured generator and vcpkg baseline remain fixed. The next run passed every gate.

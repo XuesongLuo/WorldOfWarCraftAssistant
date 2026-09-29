@@ -3,7 +3,7 @@
 > 文档版本：v0.3  
 > 当前状态：开发中  
 > 当前里程碑：M0 技术可行性 PoC  
-> 当前步骤：STEP-003 依赖锁定与许可证基线  
+> 当前步骤：STEP-004 跨语言契约与协议模拟器  
 > 更新日期：2026-09-28  
 > 产品需求：[WorldOfWarcraftAssistant-PRD.md](./WorldOfWarcraftAssistant-PRD.md)  
 > 技术基线：[WorldOfWarcraftAssistant-Technical-Design.md](./WorldOfWarcraftAssistant-Technical-Design.md)  
@@ -88,7 +88,7 @@ Agent 每次开始工作时必须按以下顺序执行：
 | 模块 | 实现进度 | 验证进度 | 当前结论 |
 |---|---:|---:|---|
 | DEP. 依赖与供应链 | 1/10 | 0/10 | 工具链基线已登记，待 CI 对比 |
-| A. 技术基线与仓库工程化 | 8/14 | 6/14 | STEP-002 完成；STEP-003 本地完成，等待 CI 验证 |
+| A. 技术基线与仓库工程化 | 8/14 | 7/14 | STEP-002、STEP-003 完成；指针推进到 STEP-004 |
 | B. WoW 插件端 | 0/10 | 0/10 | 未开始 |
 | C. Windows C++ 伴侣程序 | 0/13 | 0/13 | 未开始 |
 | D. 游戏画面捕获 | 0/9 | 0/9 | 未开始 |
@@ -101,12 +101,12 @@ Agent 每次开始工作时必须按以下顺序执行：
 
 ### 3.3 当前执行指针
 
-- 当前步骤：`STEP-003`
-- 下一可执行步骤：`STEP-003`
+- 当前步骤：`STEP-004`
+- 下一可执行步骤：`STEP-004`
 - 当前负责人：构建与发布负责人
 - 开始时间：2026-09-28
-- 最近验证：2026-09-29，STEP-002 GitHub Actions 通过；STEP-003 本地 npm/vcpkg、Debug/Release、SBOM、许可证和漏洞门禁通过
-- 当前阻断：无（STEP-003 远端 CI 待执行）
+- 最近验证：2026-09-29，STEP-003 GitHub Actions run 36561787192 全部通过
+- 当前阻断：无
 
 ## 4. 标准验证命令
 
@@ -191,7 +191,7 @@ WoW 插件验证必须使用正式服客户端的人工测试记录，不得用�
 产物：依赖 manifest、锁文件、许可证清单、SBOM 生成方式、配置模板。
 
 - [x] 实现完成
-- [ ] 验证通过：干净环境依赖树一致，未使用依赖不进入构建产物
+- [x] 验证通过：干净环境依赖树一致，未使用依赖不进入构建产物
 
 ### STEP-004：跨语言契约与协议模拟器
 
@@ -630,17 +630,17 @@ Agent/会话：
 技术文档复选框同步：是/否（原因）
 ```
 
-日期：2026-09-29 19:21  
+日期：2026-09-29 19:30  
 Agent/会话：Codex  
-当前步骤：STEP-003（实现完成，等待远端干净环境验证）  
+当前步骤：STEP-003（已完成，指针推进至 STEP-004）  
 本次完成：关闭 STEP-002 远端 CI 阻断；建立项目级 Node/npm/vcpkg/7-Zip 引导、npm workspace 与锁文件、vcpkg baseline、TypeScript 骨架、依赖门禁、SBOM/许可证生成和无密钥配置模板  
 修改文件：依赖 manifests/lock、`codex-host/`、`scripts/`、CI、CMake presets、README、供应链与测试证据文档  
 执行的验证：STEP-002 GitHub Actions；npm clean install、格式、Lint、类型检查、Vitest、esbuild、audit；vcpkg restore；Debug/Release CMake 与 2/2 Catch2；SBOM/NOTICE；未使用 DLL 检查  
-验证结果：STEP-002 完成；STEP-003 本地全部通过，远端 CI 待本提交推送后验证  
-未完成事项：推送 STEP-003 并取得 GitHub Actions 成功证据；通过前不推进 STEP-004  
+验证结果：STEP-002 完成；STEP-003 本地与 GitHub Actions run 36561787192 全部通过  
+未完成事项：Codex 运行时按计划由 STEP-009 锁定，发布包许可证一致性由发布阶段验证  
 风险或阻断：无；Codex 运行时按计划延后至 STEP-009 锁定  
-下一步建议：提交并推送 STEP-003，观察全新 runner 依赖恢复和门禁结果  
-技术文档复选框同步：是（实现项已勾选；依赖远端或发布包的验证项保持未勾选）
+下一步建议：按 STEP-004 定义版本化 JSONL 契约、类型绑定和确定性模拟器  
+技术文档复选框同步：是（STEP-003 与可由当前阶段证明的细项已勾选；发布包验证项保持未勾选）
 
 日期：2026-09-28 23:35  
 Agent/会话：Codex  
@@ -672,7 +672,7 @@ Agent/会话：Codex
 |---|---|---|---|---|---|
 | EVIDENCE-001 | STEP-001 | 自动化与环境检查 | `docs/test-results/STEP-001-validation-2026-09-28.md` | 2026-09-28 | 通过 |
 | EVIDENCE-002 | STEP-002 | 本地与 GitHub Actions | `docs/test-results/STEP-002-local-validation-2026-09-28.md`、`docs/test-results/STEP-002-ci-validation-2026-09-29.md` | 2026-09-29 | 通过 |
-| EVIDENCE-003 | STEP-003 | 依赖恢复、构建与供应链门禁 | `docs/test-results/STEP-003-local-validation-2026-09-29.md` | 2026-09-29 | 本地通过；远端 CI 待验证 |
+| EVIDENCE-003 | STEP-003 | 依赖恢复、构建与供应链门禁 | `docs/test-results/STEP-003-local-validation-2026-09-29.md` | 2026-09-29 | 本地与 GitHub Actions 通过 |
 
 建议目录：
 
@@ -738,7 +738,7 @@ docs/
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
-| v0.4 | 2026-09-29 | STEP-002 GitHub Actions 验证通过并关闭 BLOCK-002；完成 STEP-003 本地实现与验证，等待远端干净环境复核 |
+| v0.4 | 2026-09-29 | STEP-002 与 STEP-003 全部完成并通过 GitHub Actions；关闭 BLOCK-002，执行指针推进到 STEP-004 |
 | v0.3 | 2026-09-28 | 完成 STEP-002 本地实现与验证；记录 BLOCK-002，等待配置 remote 后执行 CI，当前指针不推进 |
 | v0.2 | 2026-09-28 | 完成 STEP-001：登记开发环境、6 份 M0 ADR 草案、风险清单和自动验证证据；执行指针推进到 STEP-002 |
 | v0.1 | 2026-09-28 | 根据 PRD v0.1 和技术设计 v0.4 创建 Agent 顺序执行计划，初始状态全部未开始 |

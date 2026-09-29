@@ -294,13 +294,13 @@ Codex 接入只能选择并锁定一条主路线：
 
 | 编号 | 工作项 | 开发完成 | 验证通过 | 验证依据 |
 |---|---|---|---|---|
-| DEP-01 | 创建 `vcpkg.json` 并固定 baseline | [x] | [ ] | 本地干净还原通过；待 GitHub runner 复核 |
-| DEP-02 | 创建根 `package-lock.json` 或分包锁文件 | [x] | [ ] | 本地 `npm ci` 不修改锁文件且构建成功；待 CI |
+| DEP-01 | 创建 `vcpkg.json` 并固定 baseline | [x] | [x] | 本地与 GitHub runner 还原出相同依赖版本 |
+| DEP-02 | 创建根 `package-lock.json` 或分包锁文件 | [x] | [x] | 本地与 CI 的 `npm ci` 均未修改锁文件且构建成功 |
 | DEP-03 | 固定 Node.js、CMake、MSVC 和 Windows SDK 版本 | [x] | [ ] | 已写入 `eng/toolchain.json`；待 STEP-003 Node/npm 与远端 CI 对比 |
 | DEP-04 | 锁定 Codex CLI/App Server 或 SDK 版本及哈希 | [ ] | [ ] | 启动时可检测被替换或不兼容的运行时 |
 | DEP-05 | 生成第三方依赖 SBOM | [x] | [ ] | CycloneDX 可生成；待发布包一致性验证 |
 | DEP-06 | 汇总直接及传递依赖许可证 | [x] | [ ] | npm/vcpkg NOTICE 可生成；待发布包检查 |
-| DEP-07 | 建立依赖漏洞扫描与升级流程 | [x] | [ ] | 本地 `npm audit` 0 漏洞；待 CI 门禁验证 |
+| DEP-07 | 建立依赖漏洞扫描与升级流程 | [x] | [x] | 本地与 CI `npm audit --audit-level=high` 均为 0 漏洞 |
 | DEP-08 | 验证离线安装所需运行时齐全 | [ ] | [ ] | 无开发工具、无预装 Node.js 的干净 Windows 环境可启动 |
 | DEP-09 | 验证卸载和升级不破坏用户数据 | [ ] | [ ] | 升级、回滚、卸载测试均符合保留策略 |
 | DEP-10 | 验证未使用依赖不会进入发布包 | [x] | [ ] | 当前构建检查无未使用 DLL；待安装包验证 |
@@ -508,7 +508,7 @@ WoW 插件无法与本地进程建立常规实时 IPC。本项目首期不得通
 | A-09 | 锁定 Codex 运行时版本、包来源和校验值 | [ ] | [ ] | 干净环境可复现完全相同的运行时 |
 | A-10 | 建立 Codex 及传递依赖许可证清单 | [x] | [ ] | 当前依赖清单可生成；Codex 在 STEP-009 锁定，发布包待验证 |
 | A-11 | 建立应用独立的 Codex 配置和状态目录 | [ ] | [ ] | 不读取或修改用户全局 Codex 配置 |
-| A-12 | 建立 vcpkg manifest 和依赖版本锁定 | [x] | [ ] | 本地固定 baseline 还原通过；待 GitHub runner 复核 |
+| A-12 | 建立 vcpkg manifest 和依赖版本锁定 | [x] | [x] | 本地与 GitHub runner 均按固定 baseline 还原 |
 | A-13 | 建立 TypeScript/Node.js Codex Host 工程和测试目标 | [ ] | [ ] | 可独立构建、测试并与模拟 C++ 客户端通信 |
 | A-14 | 定义 C++ 与 Codex Host 的版本化 JSONL 协议 | [ ] | [ ] | 正反例、超长消息和版本不匹配测试通过 |
 
