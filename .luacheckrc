@@ -4,6 +4,12 @@ codes = true
 self = false
 
 globals = {
+  "C_AddOns",
   "CreateFrame",
+  "GetAddOnMetadata",
+  "GetBuildInfo",
   "SlashCmdList",
+  "SLASH_WOWAI1",
+  "UIParent",
+  "WowAIAssistantDB",
 }

@@ -68,6 +68,17 @@ npm run build
 .\scripts\Test-Dependencies.ps1
 ```
 
+WoW 插件位于 `addon/WowAIAssistant/`。开发期静态验证执行：
+
+```powershell
+.\scripts\Test-WowAddon.ps1
+```
+
+人工验证时将整个 `WowAIAssistant` 目录复制到正式服
+`_retail_/Interface/AddOns/`，不要只复制其中的 Lua 文件。当前 PoC 使用 `/wowai`
+打开或关闭面板；伴侣程序尚未运行时会保持离线占位，不会影响插件加载。正式服验收步骤见
+`docs/test-plans/STEP-005-wow-addon-manual-test.md`。
+
 ## 安全提示
 
 不要提交真实 API 密钥、访问令牌、玩家截图、聊天正文、本地 Codex 配置或构建工具。截图只能由玩家主动触发并确认，Codex 的命令、文件修改、计算机控制和未知工具请求必须失败关闭。

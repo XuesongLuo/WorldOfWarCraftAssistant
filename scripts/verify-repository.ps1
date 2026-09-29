@@ -44,6 +44,13 @@ $requiredPaths = @(
     'contracts/v1/envelope.schema.json',
     'contracts/v1/error.schema.json',
     'contracts/tests/validation-cases.json',
+    'addon/WowAIAssistant/WowAIAssistant.toc',
+    'addon/WowAIAssistant/Settings.lua',
+    'addon/WowAIAssistant/Context.lua',
+    'addon/WowAIAssistant/UI.lua',
+    'addon/WowAIAssistant/Core.lua',
+    'docs/test-plans/STEP-005-wow-addon-manual-test.md',
+    'scripts/Test-WowAddon.ps1',
     'scripts/Invoke-CMake.ps1',
     'scripts/Invoke-Npm.ps1',
     'scripts/Bootstrap-Dependencies.ps1',
@@ -62,6 +69,11 @@ if ($missing) {
 }
 
 & (Join-Path $PSScriptRoot 'verify-step001.ps1') -DocumentsRoot $repositoryRoot
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
+& (Join-Path $PSScriptRoot 'Test-WowAddon.ps1') -RepositoryRoot $repositoryRoot
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
