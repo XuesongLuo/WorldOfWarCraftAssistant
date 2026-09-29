@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wowai.local/contracts/v1/envelope.schema.json",
+  "title": "WowAI JSONL envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocolVersion",
+    "messageId",
+    "kind",
+    "requestId",
+    "sequence",
+    "sentAt",
+    "timeoutMs",
+    "payload"
+  ],
+  "properties": {
+    "protocolVersion": { "const": "1.0" },
+    "messageId": { "type": "string", "format": "uuid" },
+    "kind": { "enum": ["hello", "ready", "request", "cancel", "response", "error"] },
+    "requestId": { "type": ["string", "null"], "format": "uuid" },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "sentAt": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "timeoutMs": { "type": ["integer", "null"], "minimum": 1000, "maximum": 120000 },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "request" } }, "required": ["kind"] },
+      "then": {
+        "properties": {
+          "requestId": { "type": "string", "format": "uuid" },
+          "sequence": { "const": 0 },
+          "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 120000 },
+          "payload": { "$ref": "assistant-request.schema.json" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "response" } }, "required": ["kind"] },
+      "then": { "properties": { "payload": { "$ref": "assistant-response.schema.json" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "error" } }, "required": ["kind"] },
+      "then": { "properties": { "payload": { "$ref": "error.schema.json" } } }
+    }
+  ]
+}

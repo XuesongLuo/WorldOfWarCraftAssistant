@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wowai.local/contracts/v1/assistant-response.schema.json",
+  "title": "AssistantResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "status",
+    "mode",
+    "answer",
+    "sources",
+    "usage",
+    "error"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "requestId": { "type": "string", "format": "uuid" },
+    "status": { "enum": ["completed", "needs_context", "refused", "failed"] },
+    "mode": { "enum": ["achievement", "mount", "pet", "gear", "general"] },
+    "answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "nextSteps", "constraints", "uncertainties", "followUp"],
+      "properties": {
+        "summary": { "type": "string", "maxLength": 8000 },
+        "nextSteps": {
+          "type": "array",
+          "maxItems": 5,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "constraints": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "uncertainties": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "followUp": { "type": ["string", "null"], "maxLength": 1000 }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "url", "dataVersion"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "url": { "type": ["string", "null"], "pattern": "^https://" },
+          "dataVersion": { "type": ["string", "null"], "maxLength": 128 }
+        }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["imageUsed", "knowledgeUsed", "runtime", "provider"],
+      "properties": {
+        "imageUsed": { "type": "boolean" },
+        "knowledgeUsed": { "type": "boolean" },
+        "runtime": { "const": "codex" },
+        "provider": { "enum": ["local-ollama", "local-lmstudio", "openai", "mock"] }
+      }
+    },
+    "error": { "oneOf": [{ "type": "null" }, { "$ref": "error.schema.json" }] }
+  }
+}

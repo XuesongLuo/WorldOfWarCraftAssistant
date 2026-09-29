@@ -1,0 +1,29 @@
+# Companion ↔ Codex Host protocol 1.0
+
+The companion and TypeScript Host communicate with UTF-8 JSON Lines over child-process stdio. Each line contains exactly one envelope and ends with LF. No local TCP port is opened.
+
+## Limits and negotiation
+
+- Protocol version: `1.0`.
+- Maximum encoded line size: 1,048,576 bytes, excluding the terminating LF.
+- UTF-8 must be canonical and valid; a UTF-8 BOM, replacement decoding, NUL, CR outside JSON escaping, and trailing bytes are rejected.
+- The companion sends `hello`; the Host replies with `ready` only when `1.0` is in `supportedVersions` and both peers agree on a maximum line size.
+- Request timeout defaults to 30,000 ms and must be between 1,000 and 120,000 ms.
+- UUID fields use lowercase or uppercase RFC 4122 text form. Timestamps use ISO-8601 UTC with a trailing `Z`.
+- All schema objects use `additionalProperties: false`. Unknown fields fail closed.
+
+## Envelope flow
+
+`hello` and `ready` use `requestId: null` and sequence numbers 0 and 1. An assistant `request` uses sequence 0 for its request ID. Its terminal `response` or `error` uses sequence 1. A `cancel` uses the next expected sequence. Duplicate, skipped, or decreasing sequence numbers are protocol errors.
+
+The receiver must correlate terminal messages by `requestId`, ignore no malformed input, and produce no UI update after cancellation. A timeout produces `AI_TIMEOUT`; malformed JSON, invalid UTF-8, an unsupported version, an unknown field, an oversized line, or invalid ordering produces `CODEX_PROTOCOL_ERROR`.
+
+## Files
+
+- `v1/assistant-request.schema.json`: validated user/context request.
+- `v1/assistant-response.schema.json`: validated terminal response.
+- `v1/error.schema.json`: stable application error object.
+- `v1/envelope.schema.json`: JSONL transport envelope and negotiation payloads.
+- `tests/validation-cases.json`: shared positive and negative fixtures consumed by C++ and TypeScript tests.
+
+The `mock` provider is deterministic and offline. It never launches Codex, accesses the network, reads user files, or executes tools.

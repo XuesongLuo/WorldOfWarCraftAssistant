@@ -1,0 +1,241 @@
+{
+  "assistantRequests": [
+    {
+      "name": "valid minimal request",
+      "accepted": true,
+      "value": {
+        "schemaVersion": "1.0",
+        "requestId": "11111111-1111-4111-8111-111111111111",
+        "conversationId": "22222222-2222-4222-8222-222222222222",
+        "createdAt": "2026-09-29T12:00:00Z",
+        "mode": "general",
+        "locale": "zh-CN",
+        "gameFlavor": "retail",
+        "question": "如何开始今天的游戏计划？",
+        "character": {
+          "region": "cn",
+          "realm": null,
+          "name": null,
+          "classId": null,
+          "specializationId": null,
+          "level": null
+        },
+        "images": [],
+        "client": {
+          "addonVersion": null,
+          "companionVersion": "0.1.0-dev",
+          "uiScale": null
+        },
+        "runtime": {
+          "engine": "codex",
+          "provider": "mock",
+          "model": "deterministic-v1",
+          "allowCloudUpload": false
+        }
+      }
+    },
+    {
+      "name": "missing question",
+      "accepted": false,
+      "value": {
+        "schemaVersion": "1.0",
+        "requestId": "11111111-1111-4111-8111-111111111111",
+        "conversationId": "22222222-2222-4222-8222-222222222222",
+        "createdAt": "2026-09-29T12:00:00Z",
+        "mode": "general",
+        "locale": "zh-CN",
+        "gameFlavor": "retail",
+        "character": {
+          "region": "cn",
+          "realm": null,
+          "name": null,
+          "classId": null,
+          "specializationId": null,
+          "level": null
+        },
+        "images": [],
+        "client": {
+          "addonVersion": null,
+          "companionVersion": "0.1.0-dev",
+          "uiScale": null
+        },
+        "runtime": {
+          "engine": "codex",
+          "provider": "mock",
+          "model": "deterministic-v1",
+          "allowCloudUpload": false
+        }
+      }
+    },
+    {
+      "name": "unknown sensitive field",
+      "accepted": false,
+      "value": {
+        "schemaVersion": "1.0",
+        "requestId": "11111111-1111-4111-8111-111111111111",
+        "conversationId": "22222222-2222-4222-8222-222222222222",
+        "createdAt": "2026-09-29T12:00:00Z",
+        "mode": "general",
+        "locale": "zh-CN",
+        "gameFlavor": "retail",
+        "question": "测试未知字段",
+        "secretPath": "C:/private/token.txt",
+        "character": {
+          "region": "cn",
+          "realm": null,
+          "name": null,
+          "classId": null,
+          "specializationId": null,
+          "level": null
+        },
+        "images": [],
+        "client": {
+          "addonVersion": null,
+          "companionVersion": "0.1.0-dev",
+          "uiScale": null
+        },
+        "runtime": {
+          "engine": "codex",
+          "provider": "mock",
+          "model": "deterministic-v1",
+          "allowCloudUpload": false
+        }
+      }
+    },
+    {
+      "name": "schema version mismatch",
+      "accepted": false,
+      "value": {
+        "schemaVersion": "2.0",
+        "requestId": "11111111-1111-4111-8111-111111111111",
+        "conversationId": "22222222-2222-4222-8222-222222222222",
+        "createdAt": "2026-09-29T12:00:00Z",
+        "mode": "general",
+        "locale": "zh-CN",
+        "gameFlavor": "retail",
+        "question": "测试版本",
+        "character": {
+          "region": "cn",
+          "realm": null,
+          "name": null,
+          "classId": null,
+          "specializationId": null,
+          "level": null
+        },
+        "images": [],
+        "client": {
+          "addonVersion": null,
+          "companionVersion": "0.1.0-dev",
+          "uiScale": null
+        },
+        "runtime": {
+          "engine": "codex",
+          "provider": "mock",
+          "model": "deterministic-v1",
+          "allowCloudUpload": false
+        }
+      }
+    },
+    {
+      "name": "unconfirmed image",
+      "accepted": false,
+      "value": {
+        "schemaVersion": "1.0",
+        "requestId": "11111111-1111-4111-8111-111111111111",
+        "conversationId": "22222222-2222-4222-8222-222222222222",
+        "createdAt": "2026-09-29T12:00:00Z",
+        "mode": "general",
+        "locale": "zh-CN",
+        "gameFlavor": "retail",
+        "question": "这张截图是什么？",
+        "character": {
+          "region": "cn",
+          "realm": null,
+          "name": null,
+          "classId": null,
+          "specializationId": null,
+          "level": null
+        },
+        "images": [
+          {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "mimeType": "image/png",
+            "captureScope": "wow-window",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "privacyMaskApplied": false,
+            "userConfirmed": false
+          }
+        ],
+        "client": {
+          "addonVersion": null,
+          "companionVersion": "0.1.0-dev",
+          "uiScale": null
+        },
+        "runtime": {
+          "engine": "codex",
+          "provider": "mock",
+          "model": "deterministic-v1",
+          "allowCloudUpload": false
+        }
+      }
+    }
+  ],
+  "assistantResponses": [
+    {
+      "name": "valid deterministic response",
+      "accepted": true,
+      "value": {
+        "schemaVersion": "1.0",
+        "requestId": "11111111-1111-4111-8111-111111111111",
+        "status": "completed",
+        "mode": "general",
+        "answer": {
+          "summary": "模拟响应",
+          "nextSteps": ["确认目标"],
+          "constraints": ["仅用于离线测试"],
+          "uncertainties": [],
+          "followUp": null
+        },
+        "sources": [],
+        "usage": {
+          "imageUsed": false,
+          "knowledgeUsed": false,
+          "runtime": "codex",
+          "provider": "mock"
+        },
+        "error": null
+      }
+    },
+    {
+      "name": "insecure source URL",
+      "accepted": false,
+      "value": {
+        "schemaVersion": "1.0",
+        "requestId": "11111111-1111-4111-8111-111111111111",
+        "status": "completed",
+        "mode": "general",
+        "answer": {
+          "summary": "不安全链接",
+          "nextSteps": [],
+          "constraints": [],
+          "uncertainties": [],
+          "followUp": null
+        },
+        "sources": [
+          {
+            "title": "HTTP source",
+            "url": "http://example.com",
+            "dataVersion": null
+          }
+        ],
+        "usage": {
+          "imageUsed": false,
+          "knowledgeUsed": true,
+          "runtime": "codex",
+          "provider": "mock"
+        },
+        "error": null
+      }
+    }
+  ]
+}
