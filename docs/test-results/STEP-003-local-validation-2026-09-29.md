@@ -34,3 +34,5 @@ All tools are stored below ignored project `.tools/`; no global npm or vcpkg ins
 - No unused sqlite3, spdlog, or fmt DLL entered the companion build output.
 
 Remote clean-run validation remains pending until the STEP-003 commit completes GitHub Actions.
+
+The first STEP-003 CI attempt passed bootstrap, `npm ci`, formatting, lint, typecheck, tests, and bundling, then exposed that `Invoke-CMake.ps1` only knew the workstation's private Build Tools path. The wrapper now falls back to the runner-provided `cmake.exe`; the configured generator and vcpkg baseline remain fixed.

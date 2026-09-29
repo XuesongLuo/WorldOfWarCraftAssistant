@@ -13,7 +13,11 @@ if (-not (Test-Path -LiteralPath $buildToolsRoot -PathType Container)) {
 
 $cmake = Join-Path $buildToolsRoot 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
 if (-not (Test-Path -LiteralPath $cmake -PathType Leaf)) {
-    throw "找不到已登记的 CMake：$cmake"
+    $cmakeCommand = Get-Command cmake.exe -ErrorAction SilentlyContinue
+    if (-not $cmakeCommand) {
+        throw "找不到项目 Build Tools CMake 或 PATH 中的 cmake.exe。最后检查路径：$cmake"
+    }
+    $cmake = $cmakeCommand.Source
 }
 
 $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
