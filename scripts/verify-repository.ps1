@@ -17,11 +17,21 @@ $requiredPaths = @(
     'CMakePresets.json',
     'eng/toolchain.json',
     'eng/toolchain.schema.json',
+    'eng/bootstrap-lock.json',
+    'eng/bootstrap-lock.schema.json',
+    'vcpkg.json',
+    'package.json',
+    'package-lock.json',
+    '.env.example',
     'companion/CMakeLists.txt',
     'companion/include/wowai/app/build_info.hpp',
     'companion/src/app/main.cpp',
     'companion/tests/unit/build_info_tests.cpp',
     'scripts/Invoke-CMake.ps1',
+    'scripts/Invoke-Npm.ps1',
+    'scripts/Bootstrap-Dependencies.ps1',
+    'scripts/Generate-DependencyArtifacts.ps1',
+    'scripts/Test-Dependencies.ps1',
     '.github/workflows/ci.yml'
 )
 

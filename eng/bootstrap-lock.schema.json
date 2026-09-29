@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wowai.local/schemas/bootstrap-lock.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "node": {
+      "additionalProperties": false,
+      "properties": {
+        "archive": { "minLength": 1, "type": "string" },
+        "sha256": { "pattern": "^[a-f0-9]{64}$", "type": "string" },
+        "url": { "format": "uri", "type": "string" },
+        "version": { "minLength": 1, "type": "string" }
+      },
+      "required": ["archive", "sha256", "url", "version"],
+      "type": "object"
+    },
+    "npm": { "minLength": 1, "type": "string" },
+    "sevenZip": {
+      "additionalProperties": false,
+      "properties": {
+        "archive": { "minLength": 1, "type": "string" },
+        "extractorArchive": { "minLength": 1, "type": "string" },
+        "extractorSha512": { "pattern": "^[a-f0-9]{128}$", "type": "string" },
+        "extractorUrl": { "format": "uri", "type": "string" },
+        "sha512": { "pattern": "^[a-f0-9]{128}$", "type": "string" },
+        "url": { "format": "uri", "type": "string" },
+        "version": { "minLength": 1, "type": "string" }
+      },
+      "required": [
+        "archive",
+        "extractorArchive",
+        "extractorSha512",
+        "extractorUrl",
+        "sha512",
+        "url",
+        "version"
+      ],
+      "type": "object"
+    },
+    "vcpkg": {
+      "additionalProperties": false,
+      "properties": {
+        "archive": { "minLength": 1, "type": "string" },
+        "commit": { "pattern": "^[a-f0-9]{40}$", "type": "string" },
+        "sha256": { "pattern": "^[a-f0-9]{64}$", "type": "string" },
+        "toolVersion": { "minLength": 1, "type": "string" },
+        "url": { "format": "uri", "type": "string" }
+      },
+      "required": ["archive", "commit", "sha256", "toolVersion", "url"],
+      "type": "object"
+    }
+  },
+  "required": ["node", "npm", "sevenZip", "vcpkg"],
+  "type": "object"
+}

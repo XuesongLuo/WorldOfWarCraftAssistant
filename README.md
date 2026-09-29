@@ -22,7 +22,14 @@
 
 Windows 系统级要求：Visual Studio 2022 Build Tools、MSVC v143 和 Windows 11 SDK。项目本地工具放在未跟踪的 `.tools/`；不要依赖最终用户预装开发工具。
 
-当前精确开发基线记录在 `eng/toolchain.json`。Node/npm 的项目级分发与锁文件在 STEP-003 完成；在那之前，Node 版本只表示目标基线，不代表发布运行时已经就绪。
+当前精确开发基线记录在 `eng/toolchain.json` 与 `eng/bootstrap-lock.json`。Node/npm、vcpkg 和 7-Zip 均引导到未跟踪的项目 `.tools/` 目录；下载归档必须通过锁文件中的 SHA-256/SHA-512 校验。
+
+首次检出先执行：
+
+```powershell
+.\scripts\Bootstrap-Dependencies.ps1
+.\scripts\Invoke-Npm.ps1 ci
+```
 
 如果使用项目本地 Build Tools，先在当前 PowerShell 会话导入工具路径：
 
@@ -46,9 +53,20 @@ cmake --build --preset windows-msvc-debug --target verify
 .\scripts\Invoke-CMake.ps1 --build --preset windows-msvc-debug
 ```
 
-首次 CMake 配置会下载已锁定 URL 与 SHA-256 的 Catch2 v3.8.1 到构建缓存。STEP-003 会把正式 C++ 依赖迁移到固定 baseline 的 vcpkg manifest。
+首次 CMake 配置会通过固定 baseline 的 `vcpkg.json` 恢复 Catch2、WIL、nlohmann-json、SQLite 和 spdlog。不要使用全局 npm 或全局 vcpkg 填补项目依赖。
 
-TypeScript/npm 工作区和锁文件在 STEP-003 建立；在此之前不要使用全局 npm 包填补依赖。
+完整 Node/TypeScript 验证：
+
+```powershell
+. .\scripts\Enter-DevShell.ps1
+npm ci
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run build
+.\scripts\Test-Dependencies.ps1
+```
 
 ## 安全提示
 

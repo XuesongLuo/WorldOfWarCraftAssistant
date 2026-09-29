@@ -1,0 +1,14 @@
+.git/
+.tools/
+node_modules/
+out/
+dist/
+coverage/
+*.md
+*.ps1
+*.cmake
+CMakeLists.txt
+*.cpp
+*.hpp
+*.lua
+*.toc

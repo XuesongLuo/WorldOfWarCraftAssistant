@@ -1,0 +1,35 @@
+{
+  "name": "world-of-warcraft-assistant",
+  "version": "0.1.0-dev",
+  "private": true,
+  "description": "Non-invasive World of Warcraft information assistant",
+  "engines": {
+    "node": "24.19.0",
+    "npm": "11.17.0"
+  },
+  "packageManager": "npm@11.17.0",
+  "workspaces": [
+    "codex-host"
+  ],
+  "scripts": {
+    "audit": "npm audit --audit-level=high",
+    "build": "npm run build --workspace @wowai/codex-host",
+    "format:check": "prettier --check . --ignore-path .prettierignore",
+    "lint": "eslint .",
+    "test": "npm run test --workspace @wowai/codex-host",
+    "typecheck": "npm run typecheck --workspace @wowai/codex-host"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.0",
+    "esbuild": "0.28.2",
+    "eslint": "10.11.0",
+    "prettier": "3.9.9",
+    "typescript": "6.0.2",
+    "typescript-eslint": "8.71.0",
+    "vitest": "5.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

@@ -12,15 +12,35 @@ jobs:
     # Keep CI aligned with the VS 2022 / MSVC v143 baseline recorded in
     # eng/toolchain.json and ADR-015. The windows-2025 image now uses VS 2026.
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Bootstrap locked project dependencies
+        shell: pwsh
+        run: ./scripts/Bootstrap-Dependencies.ps1
+      - name: Restore locked npm dependencies
+        shell: pwsh
+        run: ./scripts/Invoke-Npm.ps1 ci
+      - name: Verify TypeScript workspace
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-Npm.ps1 run format:check
+          ./scripts/Invoke-Npm.ps1 run lint
+          ./scripts/Invoke-Npm.ps1 run typecheck
+          ./scripts/Invoke-Npm.ps1 test
+          ./scripts/Invoke-Npm.ps1 run build
       - name: Configure
-        run: cmake --preset windows-msvc-debug
+        shell: pwsh
+        run: ./scripts/Invoke-CMake.ps1 --preset windows-msvc-debug
       - name: Build
-        run: cmake --build --preset windows-msvc-debug
+        shell: pwsh
+        run: ./scripts/Invoke-CMake.ps1 --build --preset windows-msvc-debug
       - name: Test
-        run: ctest --preset windows-msvc-debug --output-on-failure
+        shell: pwsh
+        run: ./scripts/Invoke-CMake.ps1 --build --preset windows-msvc-debug --target verify
+      - name: Dependency and vulnerability checks
+        shell: pwsh
+        run: ./scripts/Test-Dependencies.ps1
       - name: Repository checks
         shell: pwsh
         run: ./scripts/verify-repository.ps1

@@ -3,7 +3,7 @@
 > 文档版本：v0.3  
 > 当前状态：开发中  
 > 当前里程碑：M0 技术可行性 PoC  
-> 当前步骤：STEP-002 仓库骨架与统一构建入口  
+> 当前步骤：STEP-003 依赖锁定与许可证基线  
 > 更新日期：2026-09-28  
 > 产品需求：[WorldOfWarcraftAssistant-PRD.md](./WorldOfWarcraftAssistant-PRD.md)  
 > 技术基线：[WorldOfWarcraftAssistant-Technical-Design.md](./WorldOfWarcraftAssistant-Technical-Design.md)  
@@ -88,7 +88,7 @@ Agent 每次开始工作时必须按以下顺序执行：
 | 模块 | 实现进度 | 验证进度 | 当前结论 |
 |---|---:|---:|---|
 | DEP. 依赖与供应链 | 1/10 | 0/10 | 工具链基线已登记，待 CI 对比 |
-| A. 技术基线与仓库工程化 | 5/14 | 3/14 | STEP-002 本地完成，等待 CI 验证 |
+| A. 技术基线与仓库工程化 | 8/14 | 6/14 | STEP-002 完成；STEP-003 本地完成，等待 CI 验证 |
 | B. WoW 插件端 | 0/10 | 0/10 | 未开始 |
 | C. Windows C++ 伴侣程序 | 0/13 | 0/13 | 未开始 |
 | D. 游戏画面捕获 | 0/9 | 0/9 | 未开始 |
@@ -101,12 +101,12 @@ Agent 每次开始工作时必须按以下顺序执行：
 
 ### 3.3 当前执行指针
 
-- 当前步骤：`STEP-002`
-- 下一可执行步骤：`STEP-002`
+- 当前步骤：`STEP-003`
+- 下一可执行步骤：`STEP-003`
 - 当前负责人：构建与发布负责人
 - 开始时间：2026-09-28
-- 最近验证：2026-09-28，Debug/Release 构建、2/2 Catch2、最小程序和仓库检查通过
-- 当前阻断：BLOCK-002（缺少 Git remote，基础 CI 尚不能实际执行）
+- 最近验证：2026-09-29，STEP-002 GitHub Actions 通过；STEP-003 本地 npm/vcpkg、Debug/Release、SBOM、许可证和漏洞门禁通过
+- 当前阻断：无（STEP-003 远端 CI 待执行）
 
 ## 4. 标准验证命令
 
@@ -172,7 +172,7 @@ WoW 插件验证必须使用正式服客户端的人工测试记录，不得用�
 产物：可构建仓库骨架、最小测试、CI 配置。
 
 - [x] 实现完成
-- [ ] 验证通过：全新检出后可按第 4 节完成构建和测试
+- [x] 验证通过：全新检出后可按第 4 节完成构建和测试
 
 ### STEP-003：依赖锁定与许可证基线
 
@@ -190,7 +190,7 @@ WoW 插件验证必须使用正式服客户端的人工测试记录，不得用�
 
 产物：依赖 manifest、锁文件、许可证清单、SBOM 生成方式、配置模板。
 
-- [ ] 实现完成
+- [x] 实现完成
 - [ ] 验证通过：干净环境依赖树一致，未使用依赖不进入构建产物
 
 ### STEP-004：跨语言契约与协议模拟器
@@ -607,7 +607,7 @@ Agent 遇到无法在当前授权和范围内解决的问题时，必须在此�
 
 | 编号 | 日期 | 所在步骤 | 阻断描述 | 已完成的排查 | 需要谁决定或提供什么 | 状态 |
 |---|---|---|---|---|---|---|
-| BLOCK-002 | 2026-09-28 | STEP-002 | 仓库没有 Git remote，无法实际运行并核对 GitHub Actions CI | 本地 Debug/Release、无缓存依赖恢复、2/2 测试和仓库检查均通过；CI 工作流已创建 | 项目负责人提供或配置目标 GitHub 仓库 remote，随后触发 CI | 待处理 |
+| BLOCK-002 | 2026-09-28 | STEP-002 | 仓库没有 Git remote，无法实际运行并核对 GitHub Actions CI | 2026-09-29 配置并推送 GitHub remote；修正 runner 与 VS 2022 基线差异后 CI 成功 | 已解决，无需额外输入 | 已关闭 |
 | BLOCK-001 | — | — | 暂无 | — | — | 已关闭 |
 
 阻断状态：`待处理`、`处理中`、`已关闭`。关闭后保留记录和结论。
@@ -629,6 +629,18 @@ Agent/会话：
 下一步建议：
 技术文档复选框同步：是/否（原因）
 ```
+
+日期：2026-09-29 19:21  
+Agent/会话：Codex  
+当前步骤：STEP-003（实现完成，等待远端干净环境验证）  
+本次完成：关闭 STEP-002 远端 CI 阻断；建立项目级 Node/npm/vcpkg/7-Zip 引导、npm workspace 与锁文件、vcpkg baseline、TypeScript 骨架、依赖门禁、SBOM/许可证生成和无密钥配置模板  
+修改文件：依赖 manifests/lock、`codex-host/`、`scripts/`、CI、CMake presets、README、供应链与测试证据文档  
+执行的验证：STEP-002 GitHub Actions；npm clean install、格式、Lint、类型检查、Vitest、esbuild、audit；vcpkg restore；Debug/Release CMake 与 2/2 Catch2；SBOM/NOTICE；未使用 DLL 检查  
+验证结果：STEP-002 完成；STEP-003 本地全部通过，远端 CI 待本提交推送后验证  
+未完成事项：推送 STEP-003 并取得 GitHub Actions 成功证据；通过前不推进 STEP-004  
+风险或阻断：无；Codex 运行时按计划延后至 STEP-009 锁定  
+下一步建议：提交并推送 STEP-003，观察全新 runner 依赖恢复和门禁结果  
+技术文档复选框同步：是（实现项已勾选；依赖远端或发布包的验证项保持未勾选）
 
 日期：2026-09-28 23:35  
 Agent/会话：Codex  
@@ -659,7 +671,8 @@ Agent/会话：Codex
 | 证据编号 | 步骤 | 类型 | 文件或链接 | 日期 | 结论 |
 |---|---|---|---|---|---|
 | EVIDENCE-001 | STEP-001 | 自动化与环境检查 | `docs/test-results/STEP-001-validation-2026-09-28.md` | 2026-09-28 | 通过 |
-| EVIDENCE-002 | STEP-002 | 本地构建与测试 | `docs/test-results/STEP-002-local-validation-2026-09-28.md` | 2026-09-28 | 本地通过；远端 CI 待验证 |
+| EVIDENCE-002 | STEP-002 | 本地与 GitHub Actions | `docs/test-results/STEP-002-local-validation-2026-09-28.md`、`docs/test-results/STEP-002-ci-validation-2026-09-29.md` | 2026-09-29 | 通过 |
+| EVIDENCE-003 | STEP-003 | 依赖恢复、构建与供应链门禁 | `docs/test-results/STEP-003-local-validation-2026-09-29.md` | 2026-09-29 | 本地通过；远端 CI 待验证 |
 
 建议目录：
 
@@ -725,6 +738,7 @@ docs/
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
+| v0.4 | 2026-09-29 | STEP-002 GitHub Actions 验证通过并关闭 BLOCK-002；完成 STEP-003 本地实现与验证，等待远端干净环境复核 |
 | v0.3 | 2026-09-28 | 完成 STEP-002 本地实现与验证；记录 BLOCK-002，等待配置 remote 后执行 CI，当前指针不推进 |
 | v0.2 | 2026-09-28 | 完成 STEP-001：登记开发环境、6 份 M0 ADR 草案、风险清单和自动验证证据；执行指针推进到 STEP-002 |
 | v0.1 | 2026-09-28 | 根据 PRD v0.1 和技术设计 v0.4 创建 Agent 顺序执行计划，初始状态全部未开始 |
