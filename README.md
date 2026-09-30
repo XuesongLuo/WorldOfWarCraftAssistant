@@ -11,7 +11,7 @@
 ## 目录
 
 - `addon/WowAIAssistant/`：WoW Lua 插件（STEP-005 实现）。
-- `companion/`：C++20 Windows 伴侣程序、WebView2 前端和 C++ 测试。
+- `companion/`：C++20 Windows 伴侣程序最小外壳、后续 WebView2 前端和 C++ 测试。
 - `codex-host/`：TypeScript Codex Sidecar（STEP-009 实现）。
 - `codex/`：应用独立的 Codex 配置、技能和只读知识工具。
 - `contracts/`：跨进程 JSON Schema（STEP-004 实现）。
@@ -54,6 +54,19 @@ cmake --build --preset windows-msvc-debug --target verify
 ```
 
 首次 CMake 配置会通过固定 baseline 的 `vcpkg.json` 恢复 Catch2、WIL、nlohmann-json、SQLite 和 spdlog。不要使用全局 npm 或全局 vcpkg 填补项目依赖。
+
+Debug 伴侣程序构建后位于
+`out/build/windows-msvc-debug/companion/Debug/wowai_companion.exe`。启动后显示等待 WoW
+的最小窗口并创建系统托盘图标；再次启动会聚焦现有窗口。右键托盘图标选择 `Exit`，或关闭
+主窗口，均走正常退出路径。重复启动与退出验收可执行：
+
+```powershell
+.\scripts\Test-Step006Companion.ps1 `
+  -Executable '.\out\build\windows-msvc-debug\companion\Debug\wowai_companion.exe' `
+  -Cycles 25
+```
+
+资源所有权约定见 `docs/architecture/companion-resource-ownership.md`。
 
 完整 Node/TypeScript 验证：
 
