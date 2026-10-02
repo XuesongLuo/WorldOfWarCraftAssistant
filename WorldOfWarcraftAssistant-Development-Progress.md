@@ -1,10 +1,10 @@
 # World of Warcraft AI Assistant 开发进度与 Agent 执行手册
 
-> 文档版本：v0.16  
+> 文档版本：v0.17  
 > 当前状态：开发中  
 > 当前里程碑：M0 技术可行性 PoC  
-> 当前步骤：STEP-010 Codex App Server 最小闭环；STEP-007B 可选锚点人工验证并行  
-> 更新日期：2026-10-01  
+> 当前步骤：STEP-011 本地模型纯文本闭环；STEP-007B 可选锚点人工验证并行  
+> 更新日期：2026-10-02  
 > 产品需求：[WorldOfWarcraftAssistant-PRD.md](./WorldOfWarcraftAssistant-PRD.md)  
 > 技术基线：[WorldOfWarcraftAssistant-Technical-Design.md](./WorldOfWarcraftAssistant-Technical-Design.md)  
 
@@ -92,7 +92,7 @@ Agent 每次开始工作时必须按以下顺序执行：
 | B. WoW 插件端 | 5/13 | 5/13 | STEP-005 PoC 已验证；STEP-012 实现视觉数据桥，STEP-018 完成上下文卡片重构 |
 | C. Windows C++ 伴侣程序 | 9/13 | 8/13 | STEP-009 子进程 Job 所有权与 JSONL/stdio 客户端已验证 |
 | D. 游戏画面捕获、场景感知与视觉桥解码 | 0/18 | 0/18 | 按需截图、场景感知、实战教学观察与单向视觉数据桥均未开始 |
-| E. Codex 运行时与 AI 编排 | 5/26 | 5/26 | 严格 Host、离线 mock、版本协商、独立目录和运行时锁已验证 |
+| E. Codex 运行时与 AI 编排 | 12/26 | 12/26 | 锁定 App Server、thread/turn、流式、取消、审批和工具失败关闭已验证 |
 | F. 游戏知识与资料层 | 0/9 | 0/9 | 未开始 |
 | G. 覆盖层视觉融合与交互联动 | 10/10 | 7/10 | 无插件透明覆盖层及窗口跟随已通过；可选插件锚点精度仍待 STEP-007B |
 | H. 本地数据、设置与安全 | 0/8 | 0/8 | 未开始 |
@@ -101,11 +101,11 @@ Agent 每次开始工作时必须按以下顺序执行：
 
 ### 3.3 当前执行指针
 
-- 当前步骤：`STEP-010`（核心路径）；`STEP-007B` 可选锚点人工验证并行
-- 下一可执行步骤：`STEP-010`
-- 当前负责人：Windows C++ 负责人
+- 当前步骤：`STEP-011`（核心路径）；`STEP-007B` 可选锚点人工验证并行
+- 下一可执行步骤：`STEP-011`
+- 当前负责人：AI 运行时技术负责人
 - 开始时间：2026-09-28
-- 最近验证：2026-10-01，STEP-009 Debug/Release 构建、40/40 C++ 测试、23/23 TypeScript 测试、跨语言 Host 集成、Codex 锁和仓库门禁通过
+- 最近验证：2026-10-02，STEP-010 真实锁定 App Server initialize/thread 冒烟、42/42 TypeScript、Debug/Release 各 40/40 C++ 和仓库门禁通过
 - 当前阻断：核心路径无阻断；BLOCK-004 仅限制可选插件锚点增强的验收
 
 ## 4. 标准验证命令
@@ -329,8 +329,8 @@ WoW 插件验证必须使用正式服客户端的人工测试记录，不得用�
 
 产物：Codex 适配器、协议测试、审批拒绝测试、ADR。
 
-- [ ] 实现完成
-- [ ] 验证通过：最小 turn 完成，未知事件和所有副作用请求均被阻断
+- [x] 实现完成
+- [x] 验证通过：模拟最小流式 turn 完成；真实锁定 App Server initialize/thread 生命周期通过；未知事件和所有副作用请求均被阻断
 
 ### STEP-011：本地模型纯文本闭环
 
@@ -647,6 +647,18 @@ Agent/会话：
 技术文档复选框同步：是/否（原因）
 ```
 
+日期：2026-10-02 11:25  
+Agent/会话：Codex  
+当前步骤：STEP-010（完成并推进 STEP-011）  
+本次完成：锁定 App Server 真实进程启动与 initialize；thread 创建/恢复/归档和 conversation 映射；流式 turn、取消/超时/退出；严格消息关联与安全事件归一化；审批与所有副作用请求失败关闭；工具名称/参数/结果三层策略；接受 ADR-003  
+修改文件：`codex-host/src/app-server/`、App Server runtime/Host 接线与测试、ADR-003、协议/资源所有权/README、STEP-010 验证证据和两份开发跟踪文档  
+执行的验证：Prettier、ESLint、TypeScript strict、42/42 Vitest、esbuild；官方 Codex 0.159.2 真实 initialize/initialized/thread-start/thread-archive；Debug/Release 各 40/40 CTest；仓库和插件安全门禁  
+验证结果：STEP-010 通过；命令、文件、权限、MCP、动态工具、用户输入、认证刷新、attestation、未知请求/通知全部失败关闭，取消后无迟到结果  
+未完成事项：本地模型提供方、能力探测和最终结构化回复闭环按计划留 STEP-011  
+风险或阻断：核心路径无阻断；App Server 仍是锁定的实验性边界，替换触发条件已写入 ADR-003  
+下一步建议：STEP-011 只选择一个本地文本模型提供方跑通端到端，不开放云端、图片或任何执行型工具  
+技术文档复选框同步：是（STEP-010、E-02/E-03/E-05/E-06/E-07/E-08/E-22 已同步）
+
 日期：2026-10-01 23:55  
 Agent/会话：Codex  
 当前步骤：STEP-009（完成并推进 STEP-010）  
@@ -802,6 +814,7 @@ Agent/会话：Codex
 | EVIDENCE-005 | STEP-007 | 自动化与人工计划 | `docs/test-results/STEP-007-automated-validation-2026-09-30.md`、`docs/test-plans/STEP-007-wow-window-anchor-manual-test.md` | 2026-09-30 | 自动验证通过，正式服增强路径待验收 |
 | EVIDENCE-006 | STEP-008 | 单元/组件自动验证与人工计划 | `docs/test-results/STEP-008-automated-validation-2026-10-01.md`、`docs/test-plans/STEP-008-overlay-manual-test.md` | 2026-10-01 | 自动验证及真实 WoW 核心 M-001 至 M-010 通过 |
 | EVIDENCE-007 | STEP-009 | Host、IPC、进程与供应链自动验证 | `docs/test-results/STEP-009-automated-validation-2026-10-01.md` | 2026-10-01 | Debug/Release、23/23 TypeScript、40/40 C++、运行时锁均通过 |
+| EVIDENCE-008 | STEP-010 | App Server 生命周期、协议和安全策略验证 | `docs/test-results/STEP-010-automated-validation-2026-10-02.md` | 2026-10-02 | 真实 initialize/thread、42/42 TypeScript、Debug/Release 各 40/40 C++ 通过 |
 
 建议目录：
 
@@ -868,6 +881,7 @@ docs/
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
+| v0.17 | 2026-10-02 | STEP-010 锁定 App Server initialize/thread/turn、流式/取消、审批与工具失败关闭完成；接受 ADR-003，指针推进 STEP-011 |
 | v0.16 | 2026-10-01 | STEP-009 严格 TypeScript Host、C++ Job/stdio 客户端、确定性 mock、应用独立目录及 Codex 0.159.2 来源/二进制/Schema 锁完成并验证，指针推进 STEP-010 |
 | v0.15 | 2026-10-01 | STEP-008 真实 WoW 核心门禁 M-001 至 M-010 通过；修复并复测跨进程鼠标穿透；接受 ADR-014，执行指针推进 STEP-009 |
 | v0.14 | 2026-10-01 | 完成 STEP-008 透明覆盖层实现与自动验证：DirectComposition + WebView2 Composition、无插件定位、焦点/前台门控、鼠标穿透、严格消息桥和人工计划；真实 WoW/DPI 验收待执行 |

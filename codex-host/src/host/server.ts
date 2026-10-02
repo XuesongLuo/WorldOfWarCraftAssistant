@@ -13,6 +13,7 @@ import {
   parseJsonLine,
 } from '../protocol/validation.js';
 import type { ICodexRuntime } from '../runtime/mock-runtime.js';
+import { CodexRuntimeFailure } from '../runtime/errors.js';
 
 interface PendingRequest {
   controller: AbortController;
@@ -46,6 +47,8 @@ export class CodexHostServer {
       this.abortAll(error);
       this.log(error);
       throw error;
+    } finally {
+      await this.options.runtime.close?.();
     }
   }
 
@@ -140,11 +143,16 @@ export class CodexHostServer {
       clearTimeout(current.timer);
       this.pending.delete(request.requestId);
       this.log(error);
-      this.sendError(request.requestId, {
-        code: 'CODEX_START_FAILED',
-        message: 'The local Codex runtime could not complete the request.',
-        retryable: true,
-      });
+      this.sendError(
+        request.requestId,
+        error instanceof CodexRuntimeFailure
+          ? error.assistantError
+          : {
+              code: 'CODEX_START_FAILED',
+              message: 'The local Codex runtime could not complete the request.',
+              retryable: true,
+            },
+      );
     }
   }
 

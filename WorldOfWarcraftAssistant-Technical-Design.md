@@ -1,8 +1,8 @@
 # World of Warcraft AI Assistant 技术设计与开发跟踪文档
 
-> 文档版本：v0.16  
+> 文档版本：v0.17  
 > 文档状态：技术方案已按“覆盖层主入口、插件可选”方向修订  
-> 更新日期：2026-10-01  
+> 更新日期：2026-10-02  
 > 上游需求：[WorldOfWarcraftAssistant-PRD.md](./WorldOfWarcraftAssistant-PRD.md)  
 > Agent 执行计划：[WorldOfWarcraftAssistant-Development-Progress.md](./WorldOfWarcraftAssistant-Development-Progress.md)  
 > 首期平台：Windows 11 / World of Warcraft 正式服  
@@ -48,7 +48,7 @@
 | B. WoW 插件端 | 46.2% | 38.5% | 已移除聊天壳并加入公开上下文/可见数据桥骨架；正式服复测待 STEP-018 |
 | C. Windows 伴侣程序 | 69.2% | 61.5% | STEP-009 C++ Host 所有权与 JSONL/stdio 客户端已验证 |
 | D. 游戏画面捕获与上下文处理 | 0% | 0% | 按需截图、低频场景感知与视觉数据桥解码均未开始 |
-| E. Codex 运行时与 AI 编排 | 19.2% | 19.2% | STEP-009 严格 Host、离线 mock、版本协商和运行时锁已验证 |
+| E. Codex 运行时与 AI 编排 | 46.2% | 46.2% | STEP-010 锁定 App Server、thread/turn、流式、取消及失败关闭策略已验证 |
 | F. 游戏知识与资料层 | 0% | 0% | 未开始 |
 | G. 覆盖层视觉融合与交互联动 | 80% | 0% | 无插件透明覆盖层已实现；焦点、DPI、多屏和自动隐藏等待人工验证 |
 | H. 本地数据、设置与安全 | 0% | 0% | 未开始 |
@@ -749,14 +749,14 @@ MVP 仅允许以下只读工具：
 | 编号 | 工作项 | 开发完成 | 验证通过 | 验证依据 |
 |---|---|---|---|---|
 | E-01 | 在 TypeScript Host 中实现 `ICodexRuntime` 抽象和模拟实现 | [x] | [x] | 确定性离线 mock 通过 Host 驱动真实 C++ 客户端 |
-| E-02 | 实现 Codex App Server stdio 子进程客户端 | [ ] | [ ] | initialize、thread 和 turn 基本流程通过 |
-| E-03 | 实现 JSON-RPC 请求、响应和通知关联 | [ ] | [ ] | 乱序、错误和未知事件测试通过 |
+| E-02 | 实现 Codex App Server stdio 子进程客户端 | [x] | [x] | 锁定 0.159.2 真实 initialize/thread 生命周期及模拟流式 turn 通过 |
+| E-03 | 实现 JSON-RPC 请求、响应和通知关联 | [x] | [x] | 严格字段、响应 ID、thread/turn 关联和未知事件失败关闭通过 |
 | E-04 | 实现 Codex 运行时版本锁定和启动前校验 | [x] | [x] | npm 来源、版本、二进制/Schema 哈希一致；错版本与篡改均拒绝 |
-| E-05 | 实现 thread 创建、恢复、归档和会话映射 | [ ] | [ ] | 会话相互隔离且可安全恢复 |
-| E-06 | 实现 turn 流式事件处理、取消和超时 | [ ] | [ ] | 取消后不再向已销毁 UI 推送事件 |
-| E-07 | 实现审批请求的失败关闭策略 | [ ] | [ ] | 命令和文件修改审批始终被拒绝 |
-| E-08 | 实现工具名称、参数和结果的三层白名单校验 | [ ] | [ ] | 未知、写入型和参数越权工具均被阻断 |
-| E-09 | 实现应用独立 Codex 配置目录 | [x] | [x] | 独立 config/state/空 workspace 创建测试通过；真实 App Server 接线留 STEP-010 |
+| E-05 | 实现 thread 创建、恢复、归档和会话映射 | [x] | [x] | conversation 映射复用、显式恢复和归档测试通过 |
+| E-06 | 实现 turn 流式事件处理、取消和超时 | [x] | [x] | 流式文本完成；取消发送 interrupt 且丢弃迟到事件 |
+| E-07 | 实现审批请求的失败关闭策略 | [x] | [x] | 命令/文件明确 decline；权限、MCP、动态工具等统一拒绝 |
+| E-08 | 实现工具名称、参数和结果的三层白名单校验 | [x] | [x] | 空生产注册表；名称、严格参数和严格结果三层负向测试通过 |
+| E-09 | 实现应用独立 Codex 配置目录 | [x] | [x] | 真实 App Server 使用应用 state/CODEX_HOME 和空 workspace，不读取全局配置 |
 | E-10 | 实现本地 Ollama 提供方配置 | [ ] | [ ] | 无云端网络时完成纯文本问答 |
 | E-11 | 实现本地 LM Studio 提供方配置 | [ ] | [ ] | 无云端网络时完成纯文本问答 |
 | E-12 | 实现经用户明确启用的云端提供方 | [ ] | [ ] | 关闭云端上传后无请求离开本机 |
@@ -769,7 +769,7 @@ MVP 仅允许以下只读工具：
 | E-19 | 实现不确定性和资料版本提示 | [ ] | [ ] | 资料不足时不生成确定性结论 |
 | E-20 | 实现配装建议范围声明 | [ ] | [ ] | 所有配装回复均标注通用或模拟依据 |
 | E-21 | 实现本地及云端用量保护 | [ ] | [ ] | 超出资源或费用上限时停止请求 |
-| E-22 | 建立 App Server 成熟度与替换方案评审 | [ ] | [ ] | 发布前确认继续使用或迁移稳定 SDK |
+| E-22 | 建立 App Server 成熟度与替换方案评审 | [x] | [x] | ADR-003 接受锁定适配层路线并记录五类替换触发条件 |
 | E-23 | 实现 Host 对外 JSONL 协议版本协商 | [x] | [x] | v2 hello/ready 协商、版本错误和严格顺序测试通过 |
 | E-24 | 建立 Node.js/TypeScript/Codex 依赖供应链检查 | [x] | [x] | npm 锁、Codex SRI、二进制/Schema 哈希、Apache-2.0 记录和 audit 通过 |
 | E-25 | 实现构筑感知的新手输出教练 | [ ] | [ ] | 能解释核心资源、优先级、爆发原则与分阶段练习 |
@@ -1206,7 +1206,7 @@ MVP 仅允许以下只读工具：
 |---|---|---|---|
 | ADR-001 | Windows 主程序采用 C++20，MVP 不使用 C#/.NET | M0 | [x] 已确认（2026-09-28） |
 | ADR-002 | 浮层定位采用图像锚点、手动绑定或混合方案 | M0 | [~] 混合定位已实现，等待 STEP-007 正式服验证 |
-| ADR-003 | Codex 接入采用直接 App Server 协议还是稳定 SDK Sidecar | M0 | [~] 草案：App Server JSONL/stdio，STEP-010 验证 |
+| ADR-003 | Codex 接入采用直接 App Server 协议还是稳定 SDK Sidecar | M0 | [x] 已接受：锁定 App Server + TypeScript Host；替换触发条件已记录（2026-10-02） |
 | ADR-004 | 首发区域为国服、国际服或双区域 | M0 | [~] 草案：M0 区域中立、M1 暂按国服，待负责人选择 |
 | ADR-005 | 游戏资料来源和授权方案 | M1 | [ ] |
 | ADR-006 | 是否接入 Battle.net OAuth 角色资料 | M1 | [ ] |

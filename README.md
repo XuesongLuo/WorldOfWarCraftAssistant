@@ -88,8 +88,13 @@ C++ JSONL/stdio 客户端。C++ 使用 Windows Job Object 唯一拥有 Host 进�
 粘包、乱码、超长、超时、崩溃和孤儿进程测试。Codex CLI 0.159.2 的 Windows x64 npm 来源、
 完整性、开发二进制哈希和生成的 App Server v2 Schema 已锁定在
 `eng/codex-runtime-lock.json`；Host 的配置、状态和空工作目录由应用专用目录助手创建，不读取
-用户全局 Codex 配置。当前 Host 仍只运行离线 mock；真实 App Server、模型、联网和工具审批
-属于 STEP-010 及后续步骤。
+用户全局 Codex 配置。
+
+STEP-010 已实现锁定 App Server 的真实 stdio 启动、initialize、thread/turn 生命周期、流式
+文本归一化、取消和失败关闭审批策略。默认仍使用离线 mock；只有同时设置
+`WOWAI_CODEX_BINARY`、`WOWAI_CODEX_LOCK` 和 `WOWAI_CODEX_ROOT` 才会启用真实 App Server。
+当前生产工具注册表为空，所有命令、写入、权限、MCP、动态工具、计算机控制及未知事件均被
+阻断。模型提供方和纯文本端到端问答留在 STEP-011。
 
 完整 Node/TypeScript 验证：
 

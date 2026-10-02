@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { CodexHostServer } from '../src/host/server.js';
 import type { ICodexRuntime } from '../src/runtime/mock-runtime.js';
 import { DeterministicMockRuntime } from '../src/runtime/mock-runtime.js';
+import { CodexRuntimeFailure } from '../src/runtime/errors.js';
 import type { AssistantRequest, ProtocolEnvelope } from '../src/protocol/types.js';
 import {
   MAX_MESSAGE_BYTES,
@@ -149,5 +150,31 @@ describe('Codex Host stdio server', () => {
       .map((line) => JSON.parse(line) as ProtocolEnvelope);
 
     expect(lines.map((line) => line.kind)).toEqual(['ready']);
+  });
+
+  it('preserves stable runtime policy errors at the Host boundary', async () => {
+    const blocked: ICodexRuntime = {
+      answer() {
+        return Promise.reject(
+          new CodexRuntimeFailure({
+            code: 'CODEX_TOOL_BLOCKED',
+            message: 'side effect blocked',
+            retryable: false,
+          }),
+        );
+      },
+    };
+    const result = await runHost([`${hello}\n${request}\n`], blocked);
+    const lines = result.stdout
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as ProtocolEnvelope);
+
+    expect(lines.map((line) => line.kind)).toEqual(['ready', 'error']);
+    expect(lines[1]?.payload).toEqual({
+      code: 'CODEX_TOOL_BLOCKED',
+      message: 'side effect blocked',
+      retryable: false,
+    });
   });
 });

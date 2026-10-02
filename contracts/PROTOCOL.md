@@ -42,3 +42,20 @@ The `mock` provider is deterministic and offline. It never launches Codex, acces
   tree, never an independently started Codex process.
 - STEP-009 runs only `DeterministicMockRuntime`. The locked real App Server Schema is compatibility
   input for STEP-010; no real Codex session, model, network endpoint, tool, or approval flow is active.
+
+## STEP-010 App Server boundary
+
+- Real App Server mode is opt-in through `WOWAI_CODEX_BINARY`, `WOWAI_CODEX_LOCK`, and
+  `WOWAI_CODEX_ROOT`; all three are required together. The binary is hash/version verified before
+  launch and receives an application-owned `CODEX_HOME` plus an empty workspace.
+- The Host performs `initialize`/`initialized`, maps application conversations to Codex threads, and
+  supports thread start, resume, archive, turn start, streaming text, interrupt, timeout, and exit.
+- Only explicitly allowlisted lifecycle/text notifications cross the adapter. Item types capable of
+  commands, file changes, MCP, browser/computer control, collaboration, or other side effects fail
+  the turn. Unknown requests, notifications, fields, response IDs, and correlation mismatches fail
+  closed.
+- Command and file approvals receive explicit decline responses. Permission, elicitation, dynamic
+  tool, auth-refresh, attestation, and all other server requests receive protocol errors. The
+  production tool registry is empty until later read-only knowledge tools are implemented.
+- Tool policy validates the exact tool name, strict arguments, and strict result before any result
+  can return to App Server. STEP-010 registers no executable tools.

@@ -14,6 +14,7 @@ const FIXED_TIMESTAMP = '2000-01-01T00:00:00Z';
 
 export interface ICodexRuntime {
   answer(request: AssistantRequest, signal: AbortSignal): Promise<AssistantResponse>;
+  close?(): Promise<void>;
 }
 
 export class DeterministicMockRuntime implements ICodexRuntime {

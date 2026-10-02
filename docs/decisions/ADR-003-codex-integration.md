@@ -1,6 +1,6 @@
 # ADR-003：Codex 接入路线
 
-- 状态：草案
+- 状态：已接受
 - 日期：2026-09-28
 - 负责人：AI 运行时技术负责人
 - 决策截止点：STEP-010 完成前
@@ -21,7 +21,19 @@ TypeScript Host 启动锁定版本的 `codex app-server`，使用默认 JSONL/st
 - CLI 可为当前版本生成 TypeScript 与 JSON Schema，生成物必须和锁定的 Codex 版本一起保存。
 - Codex SDK 更适合自动化任务或 CI；若 App Server 无法满足成熟度要求，则作为备选路线重新评估。
 
-参考：<https://learn.chatgpt.com/docs/app-server>、<https://learn.chatgpt.com/docs/codex-sdk>
+参考：<https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server>、<https://learn.chatgpt.com/docs/codex-sdk>
+
+## PoC 结论（2026-10-02）
+
+接受锁定版本 App Server + TypeScript Host 适配层路线。官方 Windows x64 Codex 0.159.2
+已完成真实 `initialize`、`initialized`、`thread/start` 和 `thread/archive` stdio 冒烟；协议适配器
+完成 turn 流式文本、取消、超时、恢复/归档映射及进程退出处理。命令、文件、权限、MCP、
+动态工具、认证刷新、attestation、未知请求和未知通知全部失败关闭。
+
+App Server 仍是实验性边界，必须继续与 Codex 版本、二进制哈希和生成 Schema 作为一个兼容
+单元锁定。只有以下任一条件发生时才启动替换评审：无法锁定协议、审批无法可靠拒绝、未知事件
+不能失败关闭、连续两个拟升级版本破坏最小闭环，或官方稳定 SDK 提供等价的会话/流式/审批能力。
+替换前保留 `ICodexRuntime` 和确定性 mock，禁止以放宽工具权限作为兼容手段。
 
 ## 验证与接受条件
 
