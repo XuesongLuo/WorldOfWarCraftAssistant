@@ -2,9 +2,13 @@
   "$schema": "./toolchain.schema.json",
   "architecture": "x64",
   "cmake": "3.31.6-msvc6",
+  "graphicsCaptureBackend": "Windows Graphics Capture",
+  "minimumWindowsBuild": "10.0.26100.0",
   "msvcCompiler": "19.44.35229.0",
   "msvcTools": "14.44.35207",
   "node": "24.19.0",
   "visualStudioBuildTools": "17.14.37710.0",
+  "webView2RuntimePolicy": "evergreen",
+  "webView2Sdk": "1.0.4258.31",
   "windowsSdk": "10.0.26100.0"
 }

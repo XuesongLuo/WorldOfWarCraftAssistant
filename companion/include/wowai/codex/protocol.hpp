@@ -12,7 +12,7 @@
 
 namespace wowai::codex {
 
-inline constexpr char protocol_version[] = "1.0";
+inline constexpr char protocol_version[] = "2.0";
 inline constexpr std::size_t max_message_bytes = 1'048'576;
 inline constexpr std::uint32_t default_timeout_ms = 30'000;
 inline constexpr std::uint32_t max_timeout_ms = 120'000;
@@ -46,6 +46,8 @@ struct AssistantRequest {
     std::string question;
     CharacterContext character;
     std::vector<ImageContext> images;
+    nlohmann::json observations;
+    nlohmann::json privacy;
     nlohmann::json client;
     nlohmann::json runtime;
 };
@@ -63,6 +65,7 @@ struct AssistantResponse {
     std::string mode;
     nlohmann::json answer;
     nlohmann::json sources;
+    nlohmann::json provenance;
     nlohmann::json usage;
     std::optional<AssistantError> error;
 };

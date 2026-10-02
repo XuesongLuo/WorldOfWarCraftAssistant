@@ -37,7 +37,7 @@ function envelope(
 ): ProtocolEnvelope {
   const requestId = kind === 'hello' || kind === 'ready' ? null : validRequest.requestId;
   return envelopeSchema.parse({
-    protocolVersion: '1.0',
+    protocolVersion: '2.0',
     messageId:
       kind === 'hello'
         ? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -52,11 +52,11 @@ function envelope(
 }
 
 const hello = envelope('hello', 0, {
-  supportedVersions: ['1.0'],
+  supportedVersions: ['2.0'],
   maxMessageBytes: MAX_MESSAGE_BYTES,
 });
 const ready = envelope('ready', 1, {
-  selectedVersion: '1.0',
+  selectedVersion: '2.0',
   maxMessageBytes: MAX_MESSAGE_BYTES,
 });
 const requestEnvelope = envelope('request', 0, validRequest);
@@ -81,7 +81,7 @@ describe('JSONL envelope boundaries', () => {
   });
 
   it('rejects protocol version mismatches', () => {
-    const mismatched = { ...hello, protocolVersion: '2.0' };
+    const mismatched = { ...hello, protocolVersion: '3.0' };
     expect(envelopeSchema.safeParse(mismatched).success).toBe(false);
   });
 
@@ -91,13 +91,21 @@ describe('JSONL envelope boundaries', () => {
     tracker.accept(ready);
     tracker.accept(requestEnvelope);
     const response = envelope('response', 2, {
-      schemaVersion: '1.0',
+      schemaVersion: '2.0',
       requestId: validRequest.requestId,
       status: 'completed',
       mode: validRequest.mode,
       answer: { summary: '', nextSteps: [], constraints: [], uncertainties: [], followUp: null },
       sources: [],
-      usage: { imageUsed: false, knowledgeUsed: false, runtime: 'codex', provider: 'mock' },
+      provenance: [],
+      usage: {
+        imageUsed: false,
+        knowledgeUsed: false,
+        screenObservationUsed: false,
+        addonBridgeUsed: false,
+        runtime: 'codex',
+        provider: 'mock',
+      },
       error: null,
     });
     expect(() => {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const PROTOCOL_VERSION = '1.0' as const;
+export const PROTOCOL_VERSION = '2.0' as const;
 export const MAX_MESSAGE_BYTES = 1_048_576;
 export const DEFAULT_TIMEOUT_MS = 30_000;
 export const MAX_TIMEOUT_MS = 120_000;
@@ -15,7 +15,7 @@ const utcTimestampSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u)
   .refine((value) => !Number.isNaN(Date.parse(value)), 'expected ISO-8601 UTC timestamp');
-const modeSchema = z.enum(['achievement', 'mount', 'pet', 'gear', 'general']);
+const modeSchema = z.enum(['achievement', 'mount', 'pet', 'gear', 'general', 'coach']);
 const providerSchema = z.enum(['local-ollama', 'local-lmstudio', 'openai', 'mock']);
 const nullableBoundedString = (maximum: number) => z.string().max(maximum).nullable();
 
@@ -38,6 +38,9 @@ export const assistantErrorCodeSchema = z.enum([
   'AI_INVALID_RESPONSE',
   'KNOWLEDGE_STALE',
   'POLICY_BLOCKED',
+  'BRIDGE_FRAME_INVALID',
+  'OBSERVATION_STALE',
+  'TEACHING_SESSION_INACTIVE',
 ]);
 
 export const assistantErrorSchema = z
@@ -85,6 +88,33 @@ export const assistantRequestSchema = z
           .strict(),
       )
       .max(1),
+    observations: z
+      .array(
+        z
+          .object({
+            id: uuidSchema,
+            source: z.enum(['plugin-public', 'profile-cache', 'screen-observed', 'model-inferred']),
+            kind: z.enum([
+              'build',
+              'game-state',
+              'achievement-progress',
+              'combat-ui',
+              'screen-text',
+            ]),
+            capturedAt: utcTimestampSchema,
+            confidence: z.number().min(0).max(1),
+            summary: z.string().min(1).max(4000),
+          })
+          .strict(),
+      )
+      .max(32),
+    privacy: z
+      .object({
+        selectedWindowOnly: z.literal(true),
+        screenObservationEnabled: z.boolean(),
+        rawFramesPersisted: z.literal(false),
+      })
+      .strict(),
     client: z
       .object({
         addonVersion: nullableBoundedString(64),
@@ -134,10 +164,24 @@ export const assistantResponseSchema = z
           .strict(),
       )
       .max(20),
+    provenance: z
+      .array(
+        z
+          .object({
+            observationId: uuidSchema,
+            source: z.enum(['plugin-public', 'profile-cache', 'screen-observed', 'model-inferred']),
+            confidence: z.number().min(0).max(1),
+            reason: z.string().min(1).max(1000),
+          })
+          .strict(),
+      )
+      .max(32),
     usage: z
       .object({
         imageUsed: z.boolean(),
         knowledgeUsed: z.boolean(),
+        screenObservationUsed: z.boolean(),
+        addonBridgeUsed: z.boolean(),
         runtime: z.literal('codex'),
         provider: providerSchema,
       })

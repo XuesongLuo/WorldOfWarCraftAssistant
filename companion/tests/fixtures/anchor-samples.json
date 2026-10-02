@@ -1,0 +1,50 @@
+[
+  {
+    "name": "1080p-default-scale",
+    "screenWidth": 1920,
+    "screenHeight": 1080,
+    "uiScale": 1.0,
+    "blockSize": 10,
+    "anchorX": 347,
+    "anchorY": 217,
+    "bottomAnchorX": 849,
+    "bottomAnchorY": 603,
+    "expectedContent": [352, 296, 888, 620]
+  },
+  {
+    "name": "1440p-small-ui",
+    "screenWidth": 2560,
+    "screenHeight": 1440,
+    "uiScale": 0.8,
+    "blockSize": 8,
+    "anchorX": 901,
+    "anchorY": 303,
+    "bottomAnchorX": 1415,
+    "bottomAnchorY": 676,
+    "expectedContent": [905, 366, 1446, 690]
+  },
+  {
+    "name": "1440p-custom-ui",
+    "screenWidth": 2560,
+    "screenHeight": 1440,
+    "uiScale": 1.1,
+    "blockSize": 11,
+    "anchorX": 121,
+    "anchorY": 811,
+    "bottomAnchorX": 520,
+    "bottomAnchorY": 1104,
+    "expectedContent": [127, 898, 563, 1123]
+  },
+  {
+    "name": "4k-large-ui",
+    "screenWidth": 3840,
+    "screenHeight": 2160,
+    "uiScale": 1.4,
+    "blockSize": 14,
+    "anchorX": 2807,
+    "anchorY": 417,
+    "bottomAnchorX": 3635,
+    "bottomAnchorY": 1069,
+    "expectedContent": [2814, 528, 3690, 1093]
+  }
+]

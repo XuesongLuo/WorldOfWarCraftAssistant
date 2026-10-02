@@ -1,5 +1,7 @@
 #include "wowai/codex/mock_host.hpp"
 
+#include <utility>
+
 namespace wowai::codex {
 namespace {
 constexpr std::string_view fixed_timestamp = "2000-01-01T00:00:00Z";
@@ -8,6 +10,18 @@ constexpr std::string_view response_message_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbb
 } // namespace
 
 nlohmann::json make_deterministic_response(const nlohmann::json& request) {
+    auto provenance = nlohmann::json::array();
+    bool screen_observation_used = false;
+    bool addon_bridge_used = false;
+    for (const auto& observation : request.at("observations")) {
+        const auto& source = observation.at("source");
+        screen_observation_used = screen_observation_used || source == "screen-observed";
+        addon_bridge_used = addon_bridge_used || source == "plugin-public";
+        provenance.push_back({{"observationId", observation.at("id")},
+                              {"source", source},
+                              {"confidence", observation.at("confidence")},
+                              {"reason", "deterministic mock acknowledged the supplied observation"}});
+    }
     return {{"schemaVersion", protocol_version},
             {"requestId", request.at("requestId")},
             {"status", "completed"},
@@ -20,9 +34,12 @@ nlohmann::json make_deterministic_response(const nlohmann::json& request) {
               {"uncertainties", nlohmann::json::array()},
               {"followUp", nullptr}}},
             {"sources", nlohmann::json::array()},
+            {"provenance", std::move(provenance)},
             {"usage",
              {{"imageUsed", request.at("images").size() == 1},
               {"knowledgeUsed", false},
+              {"screenObservationUsed", screen_observation_used},
+              {"addonBridgeUsed", addon_bridge_used},
               {"runtime", "codex"},
               {"provider", "mock"}}},
             {"error", nullptr}};

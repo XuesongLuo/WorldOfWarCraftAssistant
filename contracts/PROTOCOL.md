@@ -1,13 +1,13 @@
-# Companion ↔ Codex Host protocol 1.0
+# Companion ↔ Codex Host protocol 2.0
 
 The companion and TypeScript Host communicate with UTF-8 JSON Lines over child-process stdio. Each line contains exactly one envelope and ends with LF. No local TCP port is opened.
 
 ## Limits and negotiation
 
-- Protocol version: `1.0`.
+- Protocol version: `2.0`.
 - Maximum encoded line size: 1,048,576 bytes, excluding the terminating LF.
 - UTF-8 must be canonical and valid; a UTF-8 BOM, replacement decoding, NUL, CR outside JSON escaping, and trailing bytes are rejected.
-- The companion sends `hello`; the Host replies with `ready` only when `1.0` is in `supportedVersions` and both peers agree on a maximum line size.
+- The companion sends `hello`; the Host replies with `ready` only when `2.0` is in `supportedVersions` and both peers agree on a maximum line size.
 - Request timeout defaults to 30,000 ms and must be between 1,000 and 120,000 ms.
 - UUID fields use lowercase or uppercase RFC 4122 text form. Timestamps use ISO-8601 UTC with a trailing `Z`.
 - All schema objects use `additionalProperties: false`. Unknown fields fail closed.
@@ -20,10 +20,25 @@ The receiver must correlate terminal messages by `requestId`, ignore no malforme
 
 ## Files
 
-- `v1/assistant-request.schema.json`: validated user/context request.
-- `v1/assistant-response.schema.json`: validated terminal response.
-- `v1/error.schema.json`: stable application error object.
-- `v1/envelope.schema.json`: JSONL transport envelope and negotiation payloads.
+- `v2/assistant-request.schema.json`: active request contract with coach mode, observations and privacy boundary.
+- `v2/assistant-response.schema.json`: active response contract with observation provenance.
+- `v2/error.schema.json`: stable application error object.
+- `v2/envelope.schema.json`: active JSONL transport envelope and negotiation payloads.
+- `v1/`: retained as the historical pre-overlay contract; it is not negotiated by the current pre-release build.
 - `tests/validation-cases.json`: shared positive and negative fixtures consumed by C++ and TypeScript tests.
 
 The `mock` provider is deterministic and offline. It never launches Codex, accesses the network, reads user files, or executes tools.
+
+## STEP-009 Host transport behavior
+
+- The packaged TypeScript Host accepts arbitrarily split stdin chunks and multiple JSONL messages in
+  one chunk. It bounds the unfinished line before allocating beyond the negotiated maximum.
+- Protocol replies are the only stdout content. Diagnostics use stderr and are capped by the C++
+  owner; malformed UTF-8 or framing ends the Host with a non-zero exit.
+- A request timeout produces exactly one `AI_TIMEOUT` error. A received `cancel` aborts the runtime
+  operation and produces no later UI update for that request.
+- The C++ owner launches the Host suspended, attaches it to a kill-on-close Windows Job Object, then
+  resumes it. Shutdown first closes stdin and waits briefly; timeout terminates only that owned job
+  tree, never an independently started Codex process.
+- STEP-009 runs only `DeterministicMockRuntime`. The locked real App Server Schema is compatibility
+  input for STEP-010; no real Codex session, model, network endpoint, tool, or approval flow is active.

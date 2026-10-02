@@ -4,11 +4,11 @@
       "name": "valid minimal request",
       "accepted": true,
       "value": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "requestId": "11111111-1111-4111-8111-111111111111",
         "conversationId": "22222222-2222-4222-8222-222222222222",
         "createdAt": "2026-09-29T12:00:00Z",
-        "mode": "general",
+        "mode": "coach",
         "locale": "zh-CN",
         "gameFlavor": "retail",
         "question": "如何开始今天的游戏计划？",
@@ -21,6 +21,21 @@
           "level": null
         },
         "images": [],
+        "observations": [
+          {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "source": "plugin-public",
+            "kind": "build",
+            "capturedAt": "2026-09-29T12:00:00Z",
+            "confidence": 1.0,
+            "summary": "公开构筑快照"
+          }
+        ],
+        "privacy": {
+          "selectedWindowOnly": true,
+          "screenObservationEnabled": false,
+          "rawFramesPersisted": false
+        },
         "client": {
           "addonVersion": null,
           "companionVersion": "0.1.0-dev",
@@ -38,7 +53,7 @@
       "name": "missing question",
       "accepted": false,
       "value": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "requestId": "11111111-1111-4111-8111-111111111111",
         "conversationId": "22222222-2222-4222-8222-222222222222",
         "createdAt": "2026-09-29T12:00:00Z",
@@ -54,6 +69,12 @@
           "level": null
         },
         "images": [],
+        "observations": [],
+        "privacy": {
+          "selectedWindowOnly": true,
+          "screenObservationEnabled": false,
+          "rawFramesPersisted": false
+        },
         "client": {
           "addonVersion": null,
           "companionVersion": "0.1.0-dev",
@@ -71,7 +92,7 @@
       "name": "unknown sensitive field",
       "accepted": false,
       "value": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "requestId": "11111111-1111-4111-8111-111111111111",
         "conversationId": "22222222-2222-4222-8222-222222222222",
         "createdAt": "2026-09-29T12:00:00Z",
@@ -89,6 +110,12 @@
           "level": null
         },
         "images": [],
+        "observations": [],
+        "privacy": {
+          "selectedWindowOnly": true,
+          "screenObservationEnabled": false,
+          "rawFramesPersisted": false
+        },
         "client": {
           "addonVersion": null,
           "companionVersion": "0.1.0-dev",
@@ -106,7 +133,7 @@
       "name": "schema version mismatch",
       "accepted": false,
       "value": {
-        "schemaVersion": "2.0",
+        "schemaVersion": "3.0",
         "requestId": "11111111-1111-4111-8111-111111111111",
         "conversationId": "22222222-2222-4222-8222-222222222222",
         "createdAt": "2026-09-29T12:00:00Z",
@@ -123,6 +150,12 @@
           "level": null
         },
         "images": [],
+        "observations": [],
+        "privacy": {
+          "selectedWindowOnly": true,
+          "screenObservationEnabled": false,
+          "rawFramesPersisted": false
+        },
         "client": {
           "addonVersion": null,
           "companionVersion": "0.1.0-dev",
@@ -140,7 +173,7 @@
       "name": "unconfirmed image",
       "accepted": false,
       "value": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "requestId": "11111111-1111-4111-8111-111111111111",
         "conversationId": "22222222-2222-4222-8222-222222222222",
         "createdAt": "2026-09-29T12:00:00Z",
@@ -166,6 +199,12 @@
             "userConfirmed": false
           }
         ],
+        "observations": [],
+        "privacy": {
+          "selectedWindowOnly": true,
+          "screenObservationEnabled": false,
+          "rawFramesPersisted": false
+        },
         "client": {
           "addonVersion": null,
           "companionVersion": "0.1.0-dev",
@@ -185,10 +224,10 @@
       "name": "valid deterministic response",
       "accepted": true,
       "value": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "requestId": "11111111-1111-4111-8111-111111111111",
         "status": "completed",
-        "mode": "general",
+        "mode": "coach",
         "answer": {
           "summary": "模拟响应",
           "nextSteps": ["确认目标"],
@@ -197,9 +236,12 @@
           "followUp": null
         },
         "sources": [],
+        "provenance": [],
         "usage": {
           "imageUsed": false,
           "knowledgeUsed": false,
+          "screenObservationUsed": false,
+          "addonBridgeUsed": false,
           "runtime": "codex",
           "provider": "mock"
         },
@@ -210,7 +252,7 @@
       "name": "insecure source URL",
       "accepted": false,
       "value": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "requestId": "11111111-1111-4111-8111-111111111111",
         "status": "completed",
         "mode": "general",
@@ -228,9 +270,12 @@
             "dataVersion": null
           }
         ],
+        "provenance": [],
         "usage": {
           "imageUsed": false,
           "knowledgeUsed": true,
+          "screenObservationUsed": false,
+          "addonBridgeUsed": false,
           "runtime": "codex",
           "provider": "mock"
         },

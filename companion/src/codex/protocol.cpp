@@ -111,7 +111,8 @@ bool is_error(const Json& value) {
         "CODEX_VERSION_MISMATCH",     "CODEX_START_FAILED",       "CODEX_PROTOCOL_ERROR",
         "CODEX_TOOL_BLOCKED",         "MODEL_PROVIDER_UNAVAILABLE", "MODEL_CAPABILITY_MISSING",
         "AI_AUTH_FAILED",             "AI_RATE_LIMITED",          "AI_TIMEOUT",
-        "AI_INVALID_RESPONSE",        "KNOWLEDGE_STALE",          "POLICY_BLOCKED"};
+        "AI_INVALID_RESPONSE",        "KNOWLEDGE_STALE",          "POLICY_BLOCKED",
+        "BRIDGE_FRAME_INVALID",       "OBSERVATION_STALE",        "TEACHING_SESSION_INACTIVE"};
     if (!has_exact_keys(value, {"code", "message", "retryable"}) ||
         !is_string_between(value["message"], 1, 512) || !value["retryable"].is_boolean() ||
         !value["code"].is_string()) {
@@ -140,14 +141,14 @@ bool is_answer(const Json& value) {
 
 ValidationResult validate_assistant_request(const Json& value) {
     if (!has_exact_keys(value, {"schemaVersion", "requestId", "conversationId", "createdAt", "mode",
-                                "locale", "gameFlavor", "question", "character", "images", "client",
-                                "runtime"})) {
+                                "locale", "gameFlavor", "question", "character", "images", "observations",
+                                "privacy", "client", "runtime"})) {
         return rejected("request fields do not match contract");
     }
     std::size_t question_length = 0;
     if (value["schemaVersion"] != protocol_version || !is_uuid(value["requestId"]) ||
         !is_uuid(value["conversationId"]) || !is_utc_timestamp(value["createdAt"]) ||
-        !is_one_of(value["mode"], {"achievement", "mount", "pet", "gear", "general"}) ||
+        !is_one_of(value["mode"], {"achievement", "mount", "pet", "gear", "general", "coach"}) ||
         !is_string_between(value["locale"], 2, 35) || value["gameFlavor"] != "retail" ||
         !value["question"].is_string() ||
         !is_valid_utf8(value["question"].get_ref<const std::string&>(), &question_length) ||
@@ -179,6 +180,28 @@ ValidationResult validate_assistant_request(const Json& value) {
         }
     }
 
+    if (!value["observations"].is_array() || value["observations"].size() > 32) {
+        return rejected("observation list is invalid");
+    }
+    for (const auto& observation : value["observations"]) {
+        if (!has_exact_keys(observation, {"id", "source", "kind", "capturedAt", "confidence", "summary"}) ||
+            !is_uuid(observation["id"]) ||
+            !is_one_of(observation["source"], {"plugin-public", "profile-cache", "screen-observed", "model-inferred"}) ||
+            !is_one_of(observation["kind"], {"build", "game-state", "achievement-progress", "combat-ui", "screen-text"}) ||
+            !is_utc_timestamp(observation["capturedAt"]) || !observation["confidence"].is_number() ||
+            observation["confidence"].get<double>() < 0.0 || observation["confidence"].get<double>() > 1.0 ||
+            !is_string_between(observation["summary"], 1, 4000)) {
+            return rejected("observation is invalid");
+        }
+    }
+
+    const auto& privacy = value["privacy"];
+    if (!has_exact_keys(privacy, {"selectedWindowOnly", "screenObservationEnabled", "rawFramesPersisted"}) ||
+        privacy["selectedWindowOnly"] != true || !privacy["screenObservationEnabled"].is_boolean() ||
+        privacy["rawFramesPersisted"] != false) {
+        return rejected("privacy boundary is invalid");
+    }
+
     const auto& client = value["client"];
     if (!has_exact_keys(client, {"addonVersion", "companionVersion", "uiScale"}) ||
         !is_nullable_string(client["addonVersion"], 64) || !is_string_between(client["companionVersion"], 1, 64) ||
@@ -199,11 +222,11 @@ ValidationResult validate_assistant_request(const Json& value) {
 }
 
 ValidationResult validate_assistant_response(const Json& value) {
-    if (!has_exact_keys(value, {"schemaVersion", "requestId", "status", "mode", "answer", "sources", "usage",
-                                "error"}) ||
+    if (!has_exact_keys(value, {"schemaVersion", "requestId", "status", "mode", "answer", "sources",
+                                "provenance", "usage", "error"}) ||
         value["schemaVersion"] != protocol_version || !is_uuid(value["requestId"]) ||
         !is_one_of(value["status"], {"completed", "needs_context", "refused", "failed"}) ||
-        !is_one_of(value["mode"], {"achievement", "mount", "pet", "gear", "general"}) ||
+        !is_one_of(value["mode"], {"achievement", "mount", "pet", "gear", "general", "coach"}) ||
         !is_answer(value["answer"]) || !value["sources"].is_array() || value["sources"].size() > 20) {
         return rejected("response fields are invalid");
     }
@@ -215,9 +238,24 @@ ValidationResult validate_assistant_response(const Json& value) {
             return rejected("source is invalid");
         }
     }
+    if (!value["provenance"].is_array() || value["provenance"].size() > 32) {
+        return rejected("provenance is invalid");
+    }
+    for (const auto& provenance : value["provenance"]) {
+        if (!has_exact_keys(provenance, {"observationId", "source", "confidence", "reason"}) ||
+            !is_uuid(provenance["observationId"]) ||
+            !is_one_of(provenance["source"], {"plugin-public", "profile-cache", "screen-observed", "model-inferred"}) ||
+            !provenance["confidence"].is_number() || provenance["confidence"].get<double>() < 0.0 ||
+            provenance["confidence"].get<double>() > 1.0 || !is_string_between(provenance["reason"], 1, 1000)) {
+            return rejected("provenance item is invalid");
+        }
+    }
     const auto& usage = value["usage"];
-    if (!has_exact_keys(usage, {"imageUsed", "knowledgeUsed", "runtime", "provider"}) ||
-        !usage["imageUsed"].is_boolean() || !usage["knowledgeUsed"].is_boolean() || usage["runtime"] != "codex" ||
+    if (!has_exact_keys(usage, {"imageUsed", "knowledgeUsed", "screenObservationUsed", "addonBridgeUsed",
+                                "runtime", "provider"}) ||
+        !usage["imageUsed"].is_boolean() || !usage["knowledgeUsed"].is_boolean() ||
+        !usage["screenObservationUsed"].is_boolean() || !usage["addonBridgeUsed"].is_boolean() ||
+        usage["runtime"] != "codex" ||
         !is_one_of(usage["provider"], {"local-ollama", "local-lmstudio", "openai", "mock"})) {
         return rejected("usage is invalid");
     }
@@ -325,6 +363,8 @@ void from_json(const Json& value, AssistantRequest& request) {
                                   image.at("captureScope").get<std::string>(), image.at("sha256").get<std::string>(),
                                   image.at("privacyMaskApplied").get<bool>(), image.at("userConfirmed").get<bool>()});
     }
+    request.observations = value.at("observations");
+    request.privacy = value.at("privacy");
     request.client = value.at("client");
     request.runtime = value.at("runtime");
 }
@@ -342,6 +382,7 @@ void from_json(const Json& value, AssistantResponse& response) {
     value.at("mode").get_to(response.mode);
     response.answer = value.at("answer");
     response.sources = value.at("sources");
+    response.provenance = value.at("provenance");
     response.usage = value.at("usage");
     response.error = value.at("error").get<std::optional<AssistantError>>();
 }

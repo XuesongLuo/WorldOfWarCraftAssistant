@@ -16,6 +16,12 @@
     "url": "https://github.com/ip7z/7zip/releases/download/26.03/7z2603-x64.exe",
     "version": "26.03"
   },
+  "webView2Sdk": {
+    "archive": "Microsoft.Web.WebView2.1.0.4258.31.zip",
+    "sha256": "56f7f4b8bf9aee4b8efefbbdd4f67d5f74ebd1b100ed0806da71bf76af481aa9",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4258.31/microsoft.web.webview2.1.0.4258.31.nupkg",
+    "version": "1.0.4258.31"
+  },
   "vcpkg": {
     "archive": "vcpkg-b8b8df2201ad8509b81a830fe0957bcb98e06c27.zip",
     "commit": "b8b8df2201ad8509b81a830fe0957bcb98e06c27",

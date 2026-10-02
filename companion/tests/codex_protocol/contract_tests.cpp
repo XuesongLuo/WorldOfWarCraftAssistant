@@ -26,30 +26,30 @@ nlohmann::json valid_request() {
 }
 
 nlohmann::json hello_envelope() {
-    return {{"protocolVersion", "1.0"},
+    return {{"protocolVersion", wowai::codex::protocol_version},
             {"messageId", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},
             {"kind", "hello"},
             {"requestId", nullptr},
             {"sequence", 0},
             {"sentAt", "2026-09-29T12:00:00Z"},
             {"timeoutMs", nullptr},
-            {"payload", {{"supportedVersions", {"1.0"}}, {"maxMessageBytes", wowai::codex::max_message_bytes}}}};
+            {"payload", {{"supportedVersions", {wowai::codex::protocol_version}}, {"maxMessageBytes", wowai::codex::max_message_bytes}}}};
 }
 
 nlohmann::json ready_envelope() {
-    return {{"protocolVersion", "1.0"},
+    return {{"protocolVersion", wowai::codex::protocol_version},
             {"messageId", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"},
             {"kind", "ready"},
             {"requestId", nullptr},
             {"sequence", 1},
             {"sentAt", "2026-09-29T12:00:00Z"},
             {"timeoutMs", nullptr},
-            {"payload", {{"selectedVersion", "1.0"}, {"maxMessageBytes", wowai::codex::max_message_bytes}}}};
+            {"payload", {{"selectedVersion", wowai::codex::protocol_version}, {"maxMessageBytes", wowai::codex::max_message_bytes}}}};
 }
 
 nlohmann::json request_envelope() {
     auto request = valid_request();
-    return {{"protocolVersion", "1.0"},
+    return {{"protocolVersion", wowai::codex::protocol_version},
             {"messageId", "cccccccc-cccc-4ccc-8ccc-cccccccccccc"},
             {"kind", "request"},
             {"requestId", request.at("requestId")},
@@ -89,7 +89,7 @@ TEST_CASE("JSONL parsing rejects malformed UTF-8 and oversized messages", "[code
 
 TEST_CASE("envelope rejects version mismatch", "[codex][contract]") {
     auto hello = hello_envelope();
-    hello["protocolVersion"] = "2.0";
+    hello["protocolVersion"] = "3.0";
     REQUIRE_FALSE(wowai::codex::validate_envelope(hello));
 }
 
@@ -99,7 +99,7 @@ TEST_CASE("session rejects an out-of-order response", "[codex][session]") {
     REQUIRE(tracker.accept(ready_envelope().get<wowai::codex::ProtocolEnvelope>()));
     REQUIRE(tracker.accept(request_envelope().get<wowai::codex::ProtocolEnvelope>()));
 
-    auto response = nlohmann::json{{"protocolVersion", "1.0"},
+    auto response = nlohmann::json{{"protocolVersion", wowai::codex::protocol_version},
                                    {"messageId", "dddddddd-dddd-4ddd-8ddd-dddddddddddd"},
                                    {"kind", "response"},
                                    {"requestId", valid_request().at("requestId")},

@@ -12,12 +12,14 @@ $requiredFiles = @(
     'docs/decisions/ADR-010-local-model-provider.md',
     'docs/decisions/ADR-014-chat-ui.md',
     'docs/decisions/ADR-015-cpp-dependencies-linkage.md',
+    'docs/decisions/ADR-016-overlay-primary-addon-optional.md',
     'docs/environment/2026-09-28-development-environment.md',
+    'docs/environment/2026-10-01-overlay-vision-environment.md',
     'docs/risks/M0-risk-register.md'
 )
 
 $errors = [System.Collections.Generic.List[string]]::new()
-$adrFields = @('负责人：', '决策截止点：', '## 默认 PoC 假设', '## 回退方案')
+$commonAdrFields = @('负责人：', '## 回退方案')
 
 foreach ($relativePath in $requiredFiles) {
     $path = Join-Path $DocumentsRoot $relativePath
@@ -28,10 +30,19 @@ foreach ($relativePath in $requiredFiles) {
 
     if ($relativePath -like 'docs/decisions/ADR-*.md') {
         $content = Get-Content -Raw -Encoding UTF8 -LiteralPath $path
-        foreach ($field in $adrFields) {
+        foreach ($field in $commonAdrFields) {
             if (-not $content.Contains($field)) {
                 $errors.Add("$relativePath 缺少字段：$field")
             }
+        }
+        if ($content.Contains('## 默认 PoC 假设')) {
+            foreach ($field in @('决策截止点：', '## 默认 PoC 假设')) {
+                if (-not $content.Contains($field)) {
+                    $errors.Add("$relativePath 缺少草案字段：$field")
+                }
+            }
+        } elseif (-not $content.Contains('## 决策')) {
+            $errors.Add("$relativePath 缺少已接受 ADR 的决策章节。")
         }
     }
 }
@@ -51,5 +62,5 @@ if ($errors.Count -gt 0) {
     exit 1
 }
 
-Write-Output "STEP-001 文档验证通过：$($requiredFiles.Count) 个必需产物完整，6 份 ADR 均含负责人、截止点、默认假设和回退方案。"
+Write-Output "环境与 ADR 文档验证通过：$($requiredFiles.Count) 个必需产物完整，草案与已接受 ADR 字段符合各自状态。"
 exit 0

@@ -6,19 +6,27 @@
     "$schema": { "type": "string" },
     "architecture": { "const": "x64" },
     "cmake": { "minLength": 1, "type": "string" },
+    "graphicsCaptureBackend": { "const": "Windows Graphics Capture" },
+    "minimumWindowsBuild": { "minLength": 1, "type": "string" },
     "msvcCompiler": { "minLength": 1, "type": "string" },
     "msvcTools": { "minLength": 1, "type": "string" },
     "node": { "minLength": 1, "type": "string" },
     "visualStudioBuildTools": { "minLength": 1, "type": "string" },
+    "webView2RuntimePolicy": { "const": "evergreen" },
+    "webView2Sdk": { "minLength": 1, "type": "string" },
     "windowsSdk": { "minLength": 1, "type": "string" }
   },
   "required": [
     "architecture",
     "cmake",
+    "graphicsCaptureBackend",
+    "minimumWindowsBuild",
     "msvcCompiler",
     "msvcTools",
     "node",
     "visualStudioBuildTools",
+    "webView2RuntimePolicy",
+    "webView2Sdk",
     "windowsSdk"
   ],
   "type": "object"

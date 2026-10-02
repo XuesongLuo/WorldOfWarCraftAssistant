@@ -5,7 +5,7 @@ ns.Settings = ns.Settings or {}
 
 local Settings = ns.Settings
 local DEFAULTS = {
-    schemaVersion = 1,
+    schemaVersion = 2,
     window = {
         point = "CENTER",
         relativePoint = "CENTER",
@@ -16,6 +16,14 @@ local DEFAULTS = {
         scale = 1,
     },
     panelShown = false,
+    bridgeEnabled = false,
+    bridgeFields = {
+        class = true,
+        specialization = true,
+        level = true,
+        zone = true,
+        map = true,
+    },
     debugEnabled = false,
 }
 
@@ -48,6 +56,7 @@ end
 function Settings:Initialize()
     local source = type(WowAIAssistantDB) == "table" and WowAIAssistantDB or {}
     local sourceWindow = type(source.window) == "table" and source.window or {}
+    local sourceBridgeFields = type(source.bridgeFields) == "table" and source.bridgeFields or {}
 
     WowAIAssistantDB = {
         schemaVersion = DEFAULTS.schemaVersion,
@@ -61,6 +70,14 @@ function Settings:Initialize()
             scale = clamp(sourceWindow.scale, 0.75, 1.35, DEFAULTS.window.scale),
         },
         panelShown = source.panelShown == true,
+        bridgeEnabled = source.bridgeEnabled == true,
+        bridgeFields = {
+            class = sourceBridgeFields.class ~= false,
+            specialization = sourceBridgeFields.specialization ~= false,
+            level = sourceBridgeFields.level ~= false,
+            zone = sourceBridgeFields.zone ~= false,
+            map = sourceBridgeFields.map ~= false,
+        },
         debugEnabled = source.debugEnabled == true,
     }
 
@@ -103,6 +120,12 @@ end
 function Settings:SetDebugEnabled(enabled)
     if self.db then
         self.db.debugEnabled = enabled == true
+    end
+end
+
+function Settings:SetBridgeEnabled(enabled)
+    if self.db then
+        self.db.bridgeEnabled = enabled == true
     end
 end
 

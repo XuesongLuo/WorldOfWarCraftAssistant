@@ -11,6 +11,7 @@ $packageLockPath = Join-Path $repositoryRoot 'package-lock.json'
 $vcpkgRoot = Join-Path $repositoryRoot '.tools\vcpkg'
 $vcpkgExecutable = Join-Path $vcpkgRoot 'vcpkg.exe'
 $vcpkgInstalledRoot = Join-Path $repositoryRoot 'out\vcpkg'
+$bootstrapLockPath = Join-Path $repositoryRoot 'eng\bootstrap-lock.json'
 
 if (-not (Test-Path -LiteralPath $packageLockPath -PathType Leaf)) {
     throw '缺少 package-lock.json。'
@@ -22,6 +23,16 @@ if (-not (Test-Path -LiteralPath $vcpkgExecutable -PathType Leaf)) {
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 $components = [System.Collections.Generic.List[object]]::new()
 $notices = [System.Collections.Generic.List[string]]::new()
+$bootstrapLock = Get-Content -Raw $bootstrapLockPath | ConvertFrom-Json
+
+$components.Add([ordered]@{
+    type = 'library'
+    name = 'Microsoft.Web.WebView2'
+    version = [string]$bootstrapLock.webView2Sdk.version
+    licenses = @(@{ license = @{ id = 'BSD-3-Clause' } })
+    purl = "pkg:nuget/Microsoft.Web.WebView2@$($bootstrapLock.webView2Sdk.version)"
+})
+$notices.Add("| NuGet archive | Microsoft.Web.WebView2 | $($bootstrapLock.webView2Sdk.version) | BSD-3-Clause | `.tools/webview2-sdk/LICENSE.txt` |")
 
 $packageLock = Get-Content -Raw $packageLockPath | ConvertFrom-Json -AsHashtable
 foreach ($entry in $packageLock.packages.GetEnumerator() | Sort-Object Key) {
@@ -65,7 +76,10 @@ foreach ($entry in $vcpkgPackages.GetEnumerator() | Sort-Object Key) {
     $notices.Add("| vcpkg | $($name.Replace('|', '\|')) | $version | $($license.Replace('|', '\|')) | `out/vcpkg/$($package.triplet)/share/$name/copyright` |")
 }
 
-$seed = (Get-FileHash -Algorithm SHA256 $packageLockPath).Hash.ToLowerInvariant()
+$seedMaterial = (Get-FileHash -Algorithm SHA256 $packageLockPath).Hash +
+    (Get-FileHash -Algorithm SHA256 $bootstrapLockPath).Hash
+$seedBytes = [System.Text.Encoding]::UTF8.GetBytes($seedMaterial)
+$seed = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($seedBytes)).ToLowerInvariant()
 $uuidText = '{0}-{1}-{2}-{3}-{4}' -f $seed.Substring(0, 8), $seed.Substring(8, 4), $seed.Substring(12, 4), $seed.Substring(16, 4), $seed.Substring(20, 12)
 $sbom = [ordered]@{
     bomFormat = 'CycloneDX'

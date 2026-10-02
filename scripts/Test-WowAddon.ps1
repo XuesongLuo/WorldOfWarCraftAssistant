@@ -11,6 +11,7 @@ $requiredFiles = @(
     'WowAIAssistant.toc',
     'Settings.lua',
     'Context.lua',
+    'Bridge.lua',
     'UI.lua',
     'Core.lua'
 )
@@ -39,7 +40,7 @@ $tocLuaFiles = @(
         ForEach-Object { $_.Trim() } |
         Where-Object { $_ -and -not $_.StartsWith('#') -and $_.EndsWith('.lua') }
 )
-$expectedLoadOrder = @('Settings.lua', 'Context.lua', 'UI.lua', 'Core.lua')
+$expectedLoadOrder = @('Settings.lua', 'Context.lua', 'Bridge.lua', 'UI.lua', 'Core.lua')
 if (($tocLuaFiles -join '|') -ne ($expectedLoadOrder -join '|')) {
     throw "Unexpected Lua load order. Expected: $($expectedLoadOrder -join ', ')"
 }
@@ -54,11 +55,28 @@ $requiredPatterns = [ordered]@{
     'scale persistence' = 'SetScale'
     'center physical position' = 'local screenX = centerX and centerX * oldFrameScale'
     'scale coordinate conversion' = 'screenX / newFrameScale'
-    'offline state' = 'OFFLINE'
     'visible anchor' = 'WowAIAssistantAnchor'
+    'visible data bridge' = 'WowAIAssistantVisibleDataBridge'
+    'bridge protocol version' = 'PROTOCOL_VERSION'
+    'bridge payload limit' = 'MAX_PAYLOAD_BYTES = 512'
+    'event coalescing' = 'COALESCE_SECONDS = 0.1'
+    'CRC32 frame integrity' = 'crc32'
+    'secret value rejection' = 'issecretvalue'
+    'human-readable preview' = '公开上下文预览'
     'title-only dragging' = 'WowAIAssistantTitleBar'
     'protected dispatch' = 'xpcall'
     'debug setting' = 'debugEnabled'
+}
+
+$removedChatPatterns = [ordered]@{
+    'plugin chat input' = 'CreateFrame\s*\(\s*["'']EditBox["'']'
+    'plugin send handler' = '\bHandleSend\b'
+    'fake companion status' = '\bOFFLINE\b'
+}
+foreach ($entry in $removedChatPatterns.GetEnumerator()) {
+    if ($source -match $entry.Value) {
+        throw "WoW addon still contains removed behavior '$($entry.Key)': $($Matches[0])"
+    }
 }
 foreach ($entry in $requiredPatterns.GetEnumerator()) {
     if ($source -notmatch [regex]::Escape($entry.Value)) {

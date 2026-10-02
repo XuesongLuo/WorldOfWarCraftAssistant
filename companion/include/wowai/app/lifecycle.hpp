@@ -7,7 +7,6 @@ namespace wowai::app {
 enum class LifecycleState {
     starting,
     waiting_for_wow,
-    waiting_for_addon_panel,
     ready,
     capturing,
     requesting,

@@ -10,6 +10,8 @@ using UniqueThreadHandle = wil::unique_handle;
 using UniqueWindow = wil::unique_hwnd;
 using UniqueMenu = wil::unique_hmenu;
 using UniqueIcon = wil::unique_hicon;
+using UniqueBitmap = wil::unique_hbitmap;
+using UniqueDeviceContext = wil::unique_hdc;
 using ComApartment = wil::unique_couninitialize_call;
 
 template <typename Interface> using ComPtr = wil::com_ptr<Interface>;

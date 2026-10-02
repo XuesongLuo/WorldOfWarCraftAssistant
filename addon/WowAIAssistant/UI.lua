@@ -7,7 +7,7 @@ local COLORS = {
     background = { 0.035, 0.047, 0.071, 0.97 },
     border = { 0.18, 0.67, 0.82, 1 },
     muted = { 0.62, 0.69, 0.77, 1 },
-    offline = { 0.96, 0.52, 0.24, 1 },
+    active = { 0.26, 0.86, 0.55, 1 },
     panel = { 0.055, 0.075, 0.11, 0.94 },
     text = { 0.92, 0.95, 0.98, 1 },
 }
@@ -30,18 +30,12 @@ local function createText(parent, template, text)
     return label
 end
 
-local function createAnchor(parent)
-    local anchor = CreateFrame("Frame", "WowAIAssistantAnchor", parent)
+local function createAnchor(parent, name, point, x, y, colors)
+    local anchor = CreateFrame("Frame", name, parent)
     anchor:SetSize(20, 20)
-    anchor:SetPoint("TOPLEFT", parent, "TOPLEFT", 7, -7)
+    anchor:SetPoint(point, parent, point, x, y)
     anchor:SetFrameLevel(parent:GetFrameLevel() + 5)
 
-    local colors = {
-        { 0, 1, 1, 1 },
-        { 1, 0, 1, 1 },
-        { 1, 1, 1, 1 },
-        { 0, 0.12, 0.18, 1 },
-    }
     local points = {
         { "TOPLEFT", 0, 0 },
         { "TOPRIGHT", 0, 0 },
@@ -104,17 +98,29 @@ function UI:SetScale(scale)
     ns.Settings:SaveWindowPlacement(self.frame)
 end
 
-function UI:HandleSend()
-    if not self.input or self.input:GetText() == "" then
-        self:SetNotice("请输入问题；当前不会向外部服务发送任何内容。")
-        self.input:SetFocus()
-        return
-    end
-    self:SetNotice("伴侣程序未运行。问题已保留，请启动伴侣程序后重试。")
-end
-
 function UI:SetNotice(message)
     self.notice:SetText(message)
+end
+
+function UI:RefreshBridgeState()
+    local enabled = ns.Bridge:IsEnabled()
+    self.bridgeButton:SetText(enabled and "关闭数据桥" or "开启数据桥")
+    self.bridgeStatus:SetText(enabled and "数据桥：已开启并持续可见" or "数据桥：已关闭")
+    self.bridgeStatus:SetTextColor(unpack(enabled and COLORS.active or COLORS.muted))
+    self:SetNotice(enabled and "仅发布下方预览中的公开字段；伴侣程序没有返回通道。" or
+        "插件是可选上下文源；聊天请使用 Windows 覆盖层。")
+end
+
+function UI:UpdateBridgePreview(snapshot, sequence, payloadBytes)
+    local values = {}
+    for _, key in ipairs({ "class", "specialization", "level", "zone", "mapId" }) do
+        if snapshot[key] ~= nil then
+            table.insert(values, key .. ": " .. tostring(snapshot[key]))
+        end
+    end
+    self.preview:SetText(table.concat(values, "\n"))
+    self.bridgeMeta:SetFormattedText("协议 v%s · 帧 %d · %d / %d 字节", ns.Bridge.PROTOCOL_VERSION,
+        sequence, payloadBytes, ns.Bridge.MAX_PAYLOAD_BYTES)
 end
 
 function UI:ShowPanel()
@@ -168,7 +174,27 @@ function UI:Initialize()
         ns.Settings:SetPanelShown(false)
     end)
 
-    self.anchor = createAnchor(frame)
+    self.topLeftAnchor = createAnchor(frame, "WowAIAssistantAnchor", "TOPLEFT", 7, -7, {
+        { 0, 1, 1, 1 },
+        { 1, 0, 1, 1 },
+        { 1, 1, 1, 1 },
+        { 0, 0.12, 0.18, 1 },
+    })
+    self.bottomRightAnchor = createAnchor(
+        frame,
+        "WowAIAssistantBottomRightAnchor",
+        "BOTTOMRIGHT",
+        -31,
+        7,
+        {
+            { 1, 0, 1, 1 },
+            { 0, 1, 1, 1 },
+            { 0, 0.12, 0.18, 1 },
+            { 1, 1, 1, 1 },
+        }
+    )
+
+    ns.Bridge:Initialize(frame)
 
     local title = createText(frame, "GameFontNormalLarge", "WoW AI Assistant")
     title:SetPoint("TOPLEFT", frame, "TOPLEFT", 34, -13)
@@ -204,59 +230,41 @@ function UI:Initialize()
     status:SetHeight(34)
     setBackdrop(status, COLORS.panel, { 0.18, 0.24, 0.31, 1 })
 
-    local statusDot = status:CreateTexture(nil, "OVERLAY")
-    statusDot:SetColorTexture(unpack(COLORS.offline))
-    statusDot:SetSize(8, 8)
-    statusDot:SetPoint("LEFT", status, "LEFT", 12, 0)
-
-    local statusText = createText(status, "GameFontNormalSmall", "伴侣程序：离线")
-    statusText:SetPoint("LEFT", statusDot, "RIGHT", 7, 0)
-    statusText:SetTextColor(unpack(COLORS.offline))
+    self.bridgeStatus = createText(status, "GameFontNormalSmall", "数据桥：已关闭")
+    self.bridgeStatus:SetPoint("LEFT", status, "LEFT", 12, 0)
 
     local messagePanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
     messagePanel:SetPoint("TOPLEFT", status, "BOTTOMLEFT", 0, -8)
-    messagePanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 94)
+    messagePanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 92)
     setBackdrop(messagePanel, COLORS.panel, { 0.13, 0.2, 0.27, 1 })
 
-    local messageTitle = createText(messagePanel, "GameFontNormal", "消息")
+    local messageTitle = createText(messagePanel, "GameFontNormal", "公开上下文预览")
     messageTitle:SetPoint("TOPLEFT", messagePanel, "TOPLEFT", 12, -10)
     messageTitle:SetTextColor(unpack(COLORS.text))
 
-    local placeholder = createText(
+    self.preview = createText(
         messagePanel,
         "GameFontHighlight",
-        "助手内容将显示在这里。\n\nSTEP-005 仅提供安全的界面占位；插件不会联网，也不会控制游戏。"
+        "尚未发布字段。开启数据桥后，这里会显示伴侣程序可读取的全部结构化内容。"
     )
-    placeholder:SetPoint("TOPLEFT", messageTitle, "BOTTOMLEFT", 0, -14)
-    placeholder:SetPoint("RIGHT", messagePanel, "RIGHT", -12, 0)
-    placeholder:SetJustifyH("LEFT")
-    placeholder:SetJustifyV("TOP")
-    placeholder:SetTextColor(unpack(COLORS.muted))
+    self.preview:SetPoint("TOPLEFT", messageTitle, "BOTTOMLEFT", 0, -14)
+    self.preview:SetPoint("RIGHT", messagePanel, "RIGHT", -12, 0)
+    self.preview:SetJustifyH("LEFT")
+    self.preview:SetJustifyV("TOP")
+    self.preview:SetTextColor(unpack(COLORS.muted))
 
-    local input = CreateFrame("EditBox", "WowAIAssistantInput", frame, "BackdropTemplate")
-    self.input = input
-    input:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12, 50)
-    input:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -90, 50)
-    input:SetHeight(38)
-    input:SetAutoFocus(false)
-    input:SetFontObject("ChatFontNormal")
-    input:SetTextInsets(10, 10, 8, 8)
-    input:SetMaxLetters(2000)
-    setBackdrop(input, { 0.025, 0.035, 0.055, 1 }, { 0.18, 0.28, 0.36, 1 })
-    input:SetScript("OnEnterPressed", function()
-        self:HandleSend()
-    end)
-    input:SetScript("OnEscapePressed", function(current)
-        current:ClearFocus()
-    end)
+    self.bridgeMeta = createText(messagePanel, "GameFontHighlightSmall", "协议 v1 · 尚无帧")
+    self.bridgeMeta:SetPoint("BOTTOMLEFT", messagePanel, "BOTTOMLEFT", 12, 10)
+    self.bridgeMeta:SetTextColor(unpack(COLORS.muted))
 
-    local send = createButton(frame, "发送", 70, function()
-        self:HandleSend()
+    self.bridgeButton = createButton(frame, "开启数据桥", 108, function()
+        ns.Bridge:SetEnabled(not ns.Bridge:IsEnabled())
+        self:RefreshBridgeState()
     end)
-    send:SetPoint("LEFT", input, "RIGHT", 8, 0)
-    send:SetHeight(38)
+    self.bridgeButton:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -32, 50)
+    self.bridgeButton:SetHeight(30)
 
-    self.notice = createText(frame, "GameFontHighlightSmall", "伴侣程序未运行；插件仍可独立使用。")
+    self.notice = createText(frame, "GameFontHighlightSmall", "插件是可选上下文源；聊天请使用 Windows 覆盖层。")
     self.notice:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 10)
     self.notice:SetPoint("RIGHT", frame, "RIGHT", -36, 0)
     self.notice:SetHeight(32)
@@ -281,6 +289,8 @@ function UI:Initialize()
     end)
 
     self:SetScale(ns.Settings:Get().window.scale)
+    ns.Bridge:SetEnabled(ns.Settings:Get().bridgeEnabled)
+    self:RefreshBridgeState()
     if ns.Settings:Get().panelShown then
         frame:Show()
     else

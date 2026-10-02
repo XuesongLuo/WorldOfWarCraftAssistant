@@ -10,8 +10,6 @@ std::string_view to_string(const LifecycleState state) noexcept {
         return "Starting";
     case LifecycleState::waiting_for_wow:
         return "WaitingForWow";
-    case LifecycleState::waiting_for_addon_panel:
-        return "WaitingForAddonPanel";
     case LifecycleState::ready:
         return "Ready";
     case LifecycleState::capturing:
@@ -46,9 +44,7 @@ bool can_transition(const LifecycleState from, const LifecycleState to) noexcept
     case LifecycleState::starting:
         return to == LifecycleState::waiting_for_wow;
     case LifecycleState::waiting_for_wow:
-        return to == LifecycleState::waiting_for_addon_panel;
-    case LifecycleState::waiting_for_addon_panel:
-        return to == LifecycleState::ready || to == LifecycleState::recoverable_error;
+        return to == LifecycleState::ready;
     case LifecycleState::ready:
         return to == LifecycleState::capturing || to == LifecycleState::requesting ||
                to == LifecycleState::recoverable_error;
@@ -61,7 +57,7 @@ bool can_transition(const LifecycleState from, const LifecycleState to) noexcept
         return to == LifecycleState::ready || to == LifecycleState::capturing ||
                to == LifecycleState::requesting;
     case LifecycleState::recoverable_error:
-        return to == LifecycleState::waiting_for_addon_panel || to == LifecycleState::ready;
+        return to == LifecycleState::ready;
     case LifecycleState::fatal_error:
         return false;
     }

@@ -33,7 +33,7 @@ end
 local function printHelp()
     print(PREFIX .. " 命令：")
     print("/wowai - 打开或关闭面板")
-    print("/wowai show | hide | reset | status")
+    print("/wowai show | hide | reset | status | bridge on | off")
     print("/wowai scale <0.75-1.35>")
     print("/wowai debug on | off")
 end
@@ -64,14 +64,20 @@ function Core:HandleSlashCommand(input)
     elseif command == "debug" and (argument == "on" or argument == "off") then
         ns.Settings:SetDebugEnabled(argument == "on")
         print(PREFIX .. "：调试日志已" .. (argument == "on" and "开启。" or "关闭。"))
+    elseif command == "bridge" and (argument == "on" or argument == "off") then
+        ns.Bridge:SetEnabled(argument == "on")
+        ns.UI:RefreshBridgeState()
+        print(PREFIX .. "：可见单向数据桥已" .. (argument == "on" and "开启。" or "关闭。"))
     elseif command == "status" then
         local status = ns.Context:GetPublicStatus()
         print(
             string.format(
-                "%s：插件 %s；客户端 %s；伴侣程序 OFFLINE。",
+                "%s：插件 %s；客户端 %s；数据桥 %s；协议 v%s。",
                 PREFIX,
                 status.addonVersion,
-                status.clientBuild
+                status.clientBuild,
+                status.bridgeEnabled and "已开启" or "已关闭",
+                status.bridgeProtocol
             )
         )
     else

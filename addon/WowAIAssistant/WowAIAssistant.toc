@@ -1,13 +1,14 @@
 ## Interface: 120100
 ## Title: WoW AI Assistant
 ## Title-zhCN: 魔兽世界 AI 助手
-## Notes: Non-invasive visual shell for the WoW AI Assistant companion.
-## Notes-zhCN: 魔兽世界 AI 助手的非侵入式视觉面板。
+## Notes: Optional public-context card and visible one-way data bridge.
+## Notes-zhCN: 可选的公开上下文卡片和持续可见的单向数据桥。
 ## Author: WoW AI Assistant contributors
 ## Version: 0.1.0-dev
 ## SavedVariables: WowAIAssistantDB
 
 Settings.lua
 Context.lua
+Bridge.lua
 UI.lua
 Core.lua

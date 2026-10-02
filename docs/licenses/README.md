@@ -1,6 +1,10 @@
 # Third-party license baseline
 
-The authoritative dependency sets are `package-lock.json` and `vcpkg.json`. Run `scripts/Generate-DependencyArtifacts.ps1` after restoring both ecosystems to generate the complete transitive inventory at `out/dependency-artifacts/THIRD-PARTY-NOTICES.md` and the CycloneDX SBOM at `out/dependency-artifacts/sbom.cdx.json`.
+The authoritative dependency sets are `package-lock.json`, `vcpkg.json`, `eng/bootstrap-lock.json`,
+and `eng/codex-runtime-lock.json`. Run `scripts/Generate-DependencyArtifacts.ps1` after restoring the
+ecosystems to generate the complete transitive inventory at
+`out/dependency-artifacts/THIRD-PARTY-NOTICES.md` and the CycloneDX SBOM at
+`out/dependency-artifacts/sbom.cdx.json`.
 
 Current direct dependencies:
 
@@ -15,10 +19,15 @@ Current direct dependencies:
 | npm | `typescript-eslint` | 8.71.0 | MIT | Typed lint rules |
 | npm | `vitest` | 5.0.2 | MIT | TypeScript tests |
 | npm | `zod` | 4.6.5 | MIT | Runtime validation |
+| npm runtime | `@openai/codex` Windows x64 | 0.159.2 | Apache-2.0 | Locked App Server runtime for STEP-010 |
+| NuGet archive | `Microsoft.Web.WebView2` | 1.0.4258.31 | BSD-3-Clause | Native transparent chat UI SDK |
 | vcpkg | `catch2` | 3.16.0 | BSL-1.0 | C++ tests |
 | vcpkg | `nlohmann-json` | 3.12.0#2 | MIT | JSON parsing |
 | vcpkg | `spdlog` | 1.17.0#1 | MIT | Local logging |
 | vcpkg | `sqlite3` | 3.53.4#1 | blessing | Local storage |
 | vcpkg | `wil` | 1.0.260126.7 | MIT | Windows resource management |
 
-The generated inventory also includes transitive packages such as `fmt`, `vcpkg-cmake`, and npm toolchain dependencies. Codex CLI/App Server is intentionally deferred to STEP-009, where its binary, protocol schema, hashes, and licenses must be locked as one unit.
+The generated inventory also includes transitive packages such as `fmt`, `vcpkg-cmake`, and npm
+toolchain dependencies. The Codex runtime is not yet included in the generated application package;
+its version, npm source integrity, development binary hash, generated protocol Schema hash, and license
+record are locked in STEP-009. Runtime distribution and full packaged NOTICE validation remain STEP-026.

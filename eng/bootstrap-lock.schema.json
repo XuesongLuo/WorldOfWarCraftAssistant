@@ -38,6 +38,17 @@
       ],
       "type": "object"
     },
+    "webView2Sdk": {
+      "additionalProperties": false,
+      "properties": {
+        "archive": { "minLength": 1, "type": "string" },
+        "sha256": { "pattern": "^[a-f0-9]{64}$", "type": "string" },
+        "url": { "format": "uri", "type": "string" },
+        "version": { "minLength": 1, "type": "string" }
+      },
+      "required": ["archive", "sha256", "url", "version"],
+      "type": "object"
+    },
     "vcpkg": {
       "additionalProperties": false,
       "properties": {
@@ -51,6 +62,6 @@
       "type": "object"
     }
   },
-  "required": ["node", "npm", "sevenZip", "vcpkg"],
+  "required": ["node", "npm", "sevenZip", "vcpkg", "webView2Sdk"],
   "type": "object"
 }

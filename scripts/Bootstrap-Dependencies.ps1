@@ -3,7 +3,10 @@ param(
     [switch]$SkipNode,
 
     [Parameter()]
-    [switch]$SkipVcpkg
+    [switch]$SkipVcpkg,
+
+    [Parameter()]
+    [switch]$SkipWebView2
 )
 
 $ErrorActionPreference = 'Stop'
@@ -120,4 +123,33 @@ if (-not $SkipVcpkg) {
     }
 }
 
-Write-Output "项目依赖工具验证通过：Node $($lock.node.version)、npm $($lock.npm)、vcpkg $($lock.vcpkg.toolVersion)。"
+if (-not $SkipWebView2) {
+    $webViewRoot = Join-Path $toolsRoot 'webview2-sdk'
+    $webViewHeader = Join-Path $webViewRoot 'build\native\include\WebView2.h'
+    $webViewLoader = Join-Path $webViewRoot 'build\native\x64\WebView2LoaderStatic.lib'
+    $webViewVersionMarker = Join-Path $webViewRoot '.wowai-version'
+    $installedWebViewVersion = if (Test-Path -LiteralPath $webViewVersionMarker -PathType Leaf) {
+        (Get-Content -Raw -LiteralPath $webViewVersionMarker).Trim()
+    } else { '' }
+    if (-not (Test-Path -LiteralPath $webViewHeader -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $webViewLoader -PathType Leaf) -or
+        $installedWebViewVersion -ne $lock.webView2Sdk.version) {
+        $archive = Get-VerifiedArchive $lock.webView2Sdk.url $lock.webView2Sdk.archive $lock.webView2Sdk.sha256
+        $extractRoot = Join-Path $toolsRoot "webview2-sdk-$($lock.webView2Sdk.version)-extract"
+        if (Test-Path -LiteralPath $extractRoot) {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+        }
+        Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
+        if (Test-Path -LiteralPath $webViewRoot) {
+            Remove-Item -LiteralPath $webViewRoot -Recurse -Force
+        }
+        Move-Item -LiteralPath $extractRoot -Destination $webViewRoot
+        Set-Content -LiteralPath $webViewVersionMarker -Value $lock.webView2Sdk.version -Encoding ascii -NoNewline
+    }
+    if (-not (Test-Path -LiteralPath $webViewHeader -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $webViewLoader -PathType Leaf)) {
+        throw "WebView2 SDK $($lock.webView2Sdk.version) 解压后缺少 Win32 x64 开发文件。"
+    }
+}
+
+Write-Output "项目依赖工具验证通过：Node $($lock.node.version)、npm $($lock.npm)、vcpkg $($lock.vcpkg.toolVersion)、WebView2 SDK $($lock.webView2Sdk.version)。"
