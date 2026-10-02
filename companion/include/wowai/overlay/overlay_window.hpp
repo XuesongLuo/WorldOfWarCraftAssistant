@@ -16,8 +16,9 @@ inline constexpr wchar_t overlay_window_class[] = L"WorldOfWarcraftAssistant.Ove
 class OverlayWindow final {
   public:
     using StatusSink = std::function<void(std::wstring)>;
+    using MessageSink = std::function<void(std::string)>;
 
-    OverlayWindow(HINSTANCE instance, StatusSink status_sink);
+    OverlayWindow(HINSTANCE instance, StatusSink status_sink, MessageSink message_sink = {});
     ~OverlayWindow();
 
     OverlayWindow(const OverlayWindow&) = delete;
@@ -29,6 +30,8 @@ class OverlayWindow final {
     void tick() noexcept;
     void set_interaction_enabled(bool enabled) noexcept;
     void toggle_interaction() noexcept;
+    void post_assistant_message(std::string text) noexcept;
+    void post_status(std::string text, bool error = false) noexcept;
 
     [[nodiscard]] bool interaction_enabled() const noexcept;
     [[nodiscard]] bool initialized() const noexcept;

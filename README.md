@@ -79,7 +79,7 @@ STEP-007 窗口与锚点 PoC 会通过可执行文件名和进程信息枚举 Wo
 STEP-008 已加入独立的 DirectComposition + WebView2 透明聊天覆盖层。选中 WoW 后，覆盖层以
 客户区右下角为无插件默认位置；插件锚点仅提供可选增强。覆盖层只在所选 WoW 或覆盖层自身
 处于前台时显示，WoW 最小化、退出或切换到其他应用后自动隐藏。界面当前只返回明确标记的
-本地确定性模拟回复，不连接 Codex 或网络。从托盘可切换 `Enable mouse pass-through` / 
+本地回复。从托盘可切换 `Enable mouse pass-through` / 
 `Enable overlay interaction`；人工验收见
 `docs/test-plans/STEP-008-overlay-manual-test.md`。
 
@@ -94,7 +94,29 @@ STEP-010 已实现锁定 App Server 的真实 stdio 启动、initialize、thread
 文本归一化、取消和失败关闭审批策略。默认仍使用离线 mock；只有同时设置
 `WOWAI_CODEX_BINARY`、`WOWAI_CODEX_LOCK` 和 `WOWAI_CODEX_ROOT` 才会启用真实 App Server。
 当前生产工具注册表为空，所有命令、写入、权限、MCP、动态工具、计算机控制及未知事件均被
-阻断。模型提供方和纯文本端到端问答留在 STEP-011。
+阻断。
+
+STEP-011 已选择 Ollama 作为 M0 的单一本地提供方，并接通
+`覆盖层 → C++ → TypeScript Host → Codex App Server → Ollama → 覆盖层`。配置必须一次性提供
+`.env.example` 中的 Node、Host、锁定 Codex 和本地模型变量；提供方只接受无凭据的
+`http://localhost`、`127.0.0.1` 或 `[::1]` origin，不会自动安装、拉取模型或回退云端。示例：
+
+```powershell
+$env:WOWAI_NODE_BINARY = (Resolve-Path '.\.tools\node\node.exe')
+$env:WOWAI_HOST_SCRIPT = (Resolve-Path '.\codex-host\dist\index.js')
+$env:WOWAI_HOST_WORKING_DIRECTORY = (Resolve-Path '.')
+$env:WOWAI_CODEX_BINARY = 'C:\path\to\locked\codex.exe'
+$env:WOWAI_CODEX_LOCK = (Resolve-Path '.\eng\codex-runtime-lock.json')
+$env:WOWAI_CODEX_ROOT = (Join-Path $env:LOCALAPPDATA 'WorldOfWarcraftAssistant\Codex')
+$env:WOWAI_MODEL_PROVIDER = 'local-ollama'
+$env:WOWAI_LOCAL_MODEL_ENDPOINT = 'http://127.0.0.1:11434'
+$env:WOWAI_LOCAL_MODEL = 'your-installed-model:tag'
+```
+
+启动前需由用户自行安装 Ollama 和模型。能力探测只调用本机 `/api/version`、`/api/tags` 和
+`/api/show`，异常或畸形回复会安全终止请求。本仓库已经通过自动构建与失败路径测试；当前
+开发机未安装 Ollama，因此断网真实模型对话仍按
+`docs/test-plans/STEP-011-local-model-offline-manual-test.md` 待验收。
 
 完整 Node/TypeScript 验证：
 

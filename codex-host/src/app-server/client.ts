@@ -136,7 +136,12 @@ export class AppServerClient {
     await this.request('thread/archive', { threadId });
   }
 
-  public async runTurn(threadId: string, text: string, signal: AbortSignal): Promise<string> {
+  public async runTurn(
+    threadId: string,
+    text: string,
+    signal: AbortSignal,
+    outputSchema?: unknown,
+  ): Promise<string> {
     if (signal.aborted) throw abortReason(signal);
     const response = turnResponseSchema.parse(
       await this.request(
@@ -147,6 +152,7 @@ export class AppServerClient {
           approvalPolicy: 'never',
           approvalsReviewer: 'user',
           disabledPluginIds: [],
+          ...(outputSchema === undefined ? {} : { outputSchema }),
         },
         signal,
       ),

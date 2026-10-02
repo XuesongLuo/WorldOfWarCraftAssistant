@@ -1,11 +1,37 @@
+import { z } from 'zod';
+
 import type { AssistantRequest, AssistantResponse } from '../protocol/types.js';
 import { PROTOCOL_VERSION } from '../protocol/validation.js';
 import { AppServerClient, AppServerPolicyError } from '../app-server/client.js';
 import { AppServerProtocolError } from '../app-server/protocol.js';
+import type { LocalModelCapabilities, LocalModelConfiguration } from '../local-model/provider.js';
 import { CodexRuntimeFailure } from './errors.js';
 import type { ICodexRuntime } from './mock-runtime.js';
 
 const MAX_SAFE_ANSWER_CHARACTERS = 8_000;
+const structuredAnswerSchema = z
+  .object({
+    summary: z.string().max(MAX_SAFE_ANSWER_CHARACTERS),
+    nextSteps: z.array(z.string().min(1).max(1_000)).max(5),
+    constraints: z.array(z.string().min(1).max(1_000)).max(10),
+    uncertainties: z.array(z.string().min(1).max(1_000)).max(10),
+    followUp: z.string().min(1).max(1_000).nullable(),
+  })
+  .strict();
+const structuredAnswerJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'nextSteps', 'constraints', 'uncertainties', 'followUp'],
+  properties: {
+    summary: { type: 'string', maxLength: MAX_SAFE_ANSWER_CHARACTERS },
+    nextSteps: { type: 'array', maxItems: 5, items: { type: 'string' } },
+    constraints: { type: 'array', maxItems: 10, items: { type: 'string' } },
+    uncertainties: { type: 'array', maxItems: 10, items: { type: 'string' } },
+    followUp: { type: ['string', 'null'] },
+  },
+} as const;
+
+type CapabilityProbe = () => Promise<LocalModelCapabilities>;
 
 export class AppServerCodexRuntime implements ICodexRuntime {
   private readonly conversations = new Map<string, string>();
@@ -14,6 +40,8 @@ export class AppServerCodexRuntime implements ICodexRuntime {
   public constructor(
     private readonly client: AppServerClient,
     private readonly workspace: string,
+    private readonly localModel?: LocalModelConfiguration,
+    private readonly capabilityProbe?: CapabilityProbe,
   ) {}
 
   public async answer(request: AssistantRequest, signal: AbortSignal): Promise<AssistantResponse> {
@@ -24,11 +52,17 @@ export class AppServerCodexRuntime implements ICodexRuntime {
         retryable: false,
       });
     }
+    const localCapabilities = await this.validateProvider(request);
     await this.initialize();
     const threadId = await this.threadFor(request);
     let text: string;
     try {
-      text = await this.client.runTurn(threadId, request.question, signal);
+      text = await this.client.runTurn(
+        threadId,
+        request.question,
+        signal,
+        localCapabilities === undefined ? undefined : structuredAnswerJsonSchema,
+      );
     } catch (error) {
       if (error instanceof AppServerPolicyError) {
         throw new CodexRuntimeFailure({
@@ -47,18 +81,33 @@ export class AppServerCodexRuntime implements ICodexRuntime {
       throw error;
     }
 
-    return {
-      schemaVersion: PROTOCOL_VERSION,
-      requestId: request.requestId,
-      status: 'completed',
-      mode: request.mode,
-      answer: {
+    let answer: z.infer<typeof structuredAnswerSchema>;
+    if (localCapabilities === undefined) {
+      answer = {
         summary: truncate(text, MAX_SAFE_ANSWER_CHARACTERS),
         nextSteps: [],
         constraints: [],
         uncertainties: [],
         followUp: null,
-      },
+      };
+    } else {
+      try {
+        answer = structuredAnswerSchema.parse(JSON.parse(text));
+      } catch {
+        throw new CodexRuntimeFailure({
+          code: 'AI_INVALID_RESPONSE',
+          message: 'The local model returned a response that did not match the required structure.',
+          retryable: true,
+        });
+      }
+    }
+
+    return {
+      schemaVersion: PROTOCOL_VERSION,
+      requestId: request.requestId,
+      status: 'completed',
+      mode: request.mode,
+      answer,
       sources: [],
       provenance: request.observations.map((observation) => ({
         observationId: observation.id,
@@ -122,13 +171,32 @@ export class AppServerCodexRuntime implements ICodexRuntime {
   private async threadFor(request: AssistantRequest): Promise<string> {
     const existing = this.conversations.get(request.conversationId);
     if (existing !== undefined) return existing;
-    const threadId = await this.client.startThread(
-      this.workspace,
-      request.runtime.model,
-      request.runtime.provider,
-    );
+    const provider =
+      request.runtime.provider === 'local-ollama'
+        ? this.localModel?.appServerProviderId
+        : request.runtime.provider;
+    const threadId = await this.client.startThread(this.workspace, request.runtime.model, provider);
     this.conversations.set(request.conversationId, threadId);
     return threadId;
+  }
+
+  private async validateProvider(
+    request: AssistantRequest,
+  ): Promise<LocalModelCapabilities | undefined> {
+    if (request.runtime.provider !== 'local-ollama') return undefined;
+    if (
+      this.localModel === undefined ||
+      this.capabilityProbe === undefined ||
+      request.runtime.model !== this.localModel.model ||
+      request.runtime.allowCloudUpload
+    ) {
+      throw new CodexRuntimeFailure({
+        code: 'MODEL_PROVIDER_UNAVAILABLE',
+        message: 'The request does not match the explicitly configured local Ollama model.',
+        retryable: false,
+      });
+    }
+    return await this.capabilityProbe();
   }
 }
 

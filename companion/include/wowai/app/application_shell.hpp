@@ -6,12 +6,15 @@
 #include "wowai/capture/selection_store.hpp"
 #include "wowai/capture/window_capture.hpp"
 #include "wowai/capture/window_discovery.hpp"
+#include "wowai/codex/assistant_session.hpp"
 #include "wowai/overlay/overlay_window.hpp"
 #include "wowai/platform/resources.hpp"
 
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <windows.h>
@@ -49,12 +52,17 @@ class ApplicationShell final {
     void begin_manual_calibration() noexcept;
     void reset_calibration() noexcept;
     void set_status(std::wstring detail) noexcept;
+    void submit_question(std::string question) noexcept;
 
     HINSTANCE instance_{};
     std::unique_ptr<WindowClassRegistration> window_class_;
     wowai::platform::UniqueWindow window_;
     std::unique_ptr<TrayIcon> tray_icon_;
+    std::unique_ptr<wowai::codex::AssistantSession> assistant_session_;
     std::unique_ptr<wowai::overlay::OverlayWindow> overlay_window_;
+    std::jthread request_thread_;
+    std::atomic_bool request_active_{false};
+    std::string assistant_configuration_error_;
     Lifecycle lifecycle_;
     wowai::capture::WindowDiscovery window_discovery_;
     wowai::capture::WindowCapture window_capture_;

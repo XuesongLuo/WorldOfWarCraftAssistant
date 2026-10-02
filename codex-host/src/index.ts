@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 export * from './host/application-directories.js';
 export * from './host/json-line-reader.js';
 export * from './host/server.js';
+export * from './local-model/provider.js';
 export * from './app-server/client.js';
 export * from './app-server/process.js';
 export * from './app-server/protocol.js';

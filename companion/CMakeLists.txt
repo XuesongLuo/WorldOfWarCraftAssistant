@@ -24,6 +24,7 @@ add_library(wowai_core STATIC
     src/capture/selection_store.cpp
     src/capture/window_capture.cpp
     src/capture/window_discovery.cpp
+    src/codex/assistant_session.cpp
     src/codex/mock_host.cpp
     src/codex/host_client.cpp
     src/codex/host_process.cpp
@@ -68,9 +69,16 @@ if(WOWAI_BUILD_TESTS)
         COMMAND pwsh -NoProfile -File "${PROJECT_SOURCE_DIR}/scripts/Invoke-Npm.ps1" run build
         DEPENDS
             "${PROJECT_SOURCE_DIR}/codex-host/src/index.ts"
+            "${PROJECT_SOURCE_DIR}/codex-host/src/app-server/client.ts"
+            "${PROJECT_SOURCE_DIR}/codex-host/src/app-server/process.ts"
+            "${PROJECT_SOURCE_DIR}/codex-host/src/app-server/protocol.ts"
+            "${PROJECT_SOURCE_DIR}/codex-host/src/app-server/tool-policy.ts"
             "${PROJECT_SOURCE_DIR}/codex-host/src/host/application-directories.ts"
             "${PROJECT_SOURCE_DIR}/codex-host/src/host/json-line-reader.ts"
             "${PROJECT_SOURCE_DIR}/codex-host/src/host/server.ts"
+            "${PROJECT_SOURCE_DIR}/codex-host/src/local-model/provider.ts"
+            "${PROJECT_SOURCE_DIR}/codex-host/src/runtime/app-server-runtime.ts"
+            "${PROJECT_SOURCE_DIR}/codex-host/src/runtime/errors.ts"
             "${PROJECT_SOURCE_DIR}/codex-host/src/runtime/mock-runtime.ts"
             "${PROJECT_SOURCE_DIR}/codex-host/src/runtime/runtime-lock.ts"
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
@@ -87,6 +95,7 @@ if(WOWAI_BUILD_TESTS)
         tests/codex_protocol/contract_tests.cpp
         tests/unit/build_info_tests.cpp
         tests/unit/anchor_detector_tests.cpp
+        tests/unit/assistant_session_tests.cpp
         tests/unit/calibration_tests.cpp
         tests/unit/host_process_tests.cpp
         tests/unit/lifecycle_tests.cpp

@@ -7,7 +7,7 @@ import { AppServerCodexRuntime } from '../src/runtime/app-server-runtime.js';
 import type { AssistantRequest } from '../src/protocol/types.js';
 import { assistantRequestSchema } from '../src/protocol/validation.js';
 
-type Scenario = 'complete' | 'approval' | 'unknown' | 'wait';
+type Scenario = 'complete' | 'structured' | 'malformed' | 'approval' | 'unknown' | 'wait';
 
 const request = assistantRequestSchema.parse({
   schemaVersion: '2.0',
@@ -106,14 +106,30 @@ class ScriptedAppServer {
   }
 
   private afterTurnStart(): void {
-    if (this.scenario === 'complete') {
+    if (
+      this.scenario === 'complete' ||
+      this.scenario === 'structured' ||
+      this.scenario === 'malformed'
+    ) {
+      const text =
+        this.scenario === 'structured'
+          ? JSON.stringify({
+              summary: '本地结构化回答',
+              nextSteps: ['继续提问'],
+              constraints: ['仅本地文本'],
+              uncertainties: [],
+              followUp: null,
+            })
+          : this.scenario === 'malformed'
+            ? '{"summary":'
+            : '安全回答';
       this.send({
         method: 'item/agentMessage/delta',
         params: {
           threadId: this.activeThread,
           turnId: 'turn-1',
           itemId: 'item-1',
-          delta: '安全回答',
+          delta: text,
         },
       });
       this.send({
@@ -142,6 +158,7 @@ class ScriptedAppServer {
 function createRuntime(
   scenario: Scenario,
   serverRequestMethod?: string,
+  local = false,
 ): { server: ScriptedAppServer; runtime: AppServerCodexRuntime } {
   const server = new ScriptedAppServer(scenario, serverRequestMethod);
   const client = new AppServerClient({
@@ -149,7 +166,33 @@ function createRuntime(
     output: server.output,
     requestTimeoutMs: 1_000,
   });
-  return { server, runtime: new AppServerCodexRuntime(client, 'C:\\wowai\\workspace') };
+  return {
+    server,
+    runtime: new AppServerCodexRuntime(
+      client,
+      'C:\\wowai\\workspace',
+      local
+        ? {
+            provider: 'local-ollama',
+            appServerProviderId: 'wowai_ollama',
+            endpoint: new URL('http://127.0.0.1:11434'),
+            model: 'qwen3:8b',
+            probeTimeoutMs: 1_000,
+          }
+        : undefined,
+      local
+        ? () =>
+            Promise.resolve({
+              provider: 'local-ollama',
+              model: 'qwen3:8b',
+              version: '0.12.3',
+              text: true,
+              vision: false,
+              tools: true,
+            })
+        : undefined,
+    ),
+  };
 }
 
 describe('locked Codex App Server adapter', () => {
@@ -268,6 +311,73 @@ describe('locked Codex App Server adapter', () => {
     } as AssistantRequest;
     await expect(runtime.answer(withImage, new AbortController().signal)).rejects.toMatchObject({
       assistantError: { code: 'MODEL_CAPABILITY_MISSING' },
+    });
+    expect(server.threadStarts).toBe(0);
+    server.close();
+    await runtime.close();
+  });
+
+  it('maps the explicit local provider and validates a structured model answer', async () => {
+    const { server, runtime } = createRuntime('structured', undefined, true);
+    const localRequest = {
+      ...request,
+      runtime: {
+        engine: 'codex' as const,
+        provider: 'local-ollama' as const,
+        model: 'qwen3:8b',
+        allowCloudUpload: false,
+      },
+    };
+    const response = await runtime.answer(localRequest, new AbortController().signal);
+
+    expect(response.answer).toMatchObject({ summary: '本地结构化回答' });
+    expect(response.usage.provider).toBe('local-ollama');
+    const threadStart = server.received.find((message) => message.method === 'thread/start');
+    expect(threadStart?.params).toMatchObject({
+      model: 'qwen3:8b',
+      modelProvider: 'wowai_ollama',
+    });
+    const turnStart = server.received.find((message) => message.method === 'turn/start');
+    expect(turnStart?.params).toHaveProperty('outputSchema');
+    server.close();
+    await runtime.close();
+  });
+
+  it('rejects malformed local model output before it reaches the UI', async () => {
+    const { server, runtime } = createRuntime('malformed', undefined, true);
+    const localRequest = {
+      ...request,
+      runtime: {
+        engine: 'codex' as const,
+        provider: 'local-ollama' as const,
+        model: 'qwen3:8b',
+        allowCloudUpload: false,
+      },
+    };
+    await expect(runtime.answer(localRequest, new AbortController().signal)).rejects.toMatchObject({
+      assistantError: { code: 'AI_INVALID_RESPONSE', retryable: true },
+    });
+    server.close();
+    await runtime.close();
+  });
+
+  it('does not silently route a local request without matching explicit configuration', async () => {
+    const { server, runtime } = createRuntime('structured');
+    await expect(
+      runtime.answer(
+        {
+          ...request,
+          runtime: {
+            engine: 'codex',
+            provider: 'local-ollama',
+            model: 'qwen3:8b',
+            allowCloudUpload: false,
+          },
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      assistantError: { code: 'MODEL_PROVIDER_UNAVAILABLE', retryable: false },
     });
     expect(server.threadStarts).toBe(0);
     server.close();

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -53,7 +54,7 @@ border-radius:8px;padding:10px;font:inherit}textarea:focus{outline:2px solid #ff
 </style></head><body><main class="panel" aria-label="魔兽世界 AI 助手聊天">
 <header><h1>WoW AI 助手 · 本地 PoC</h1><span id="mode">交互模式</span>
 <button id="pass" type="button" title="切换后鼠标将穿透覆盖层">鼠标穿透</button></header>
-<section id="messages" role="log" aria-live="polite"><p class="message assistant">覆盖层已独立运行。此 PoC 使用本地确定性模拟回复，不连接网络或模型。<a href="https://support.blizzard.com/">暴雪支持</a></p></section>
+<section id="messages" role="log" aria-live="polite"><p class="message assistant">覆盖层已独立运行。配置本地 Ollama 与 Codex Host 后即可进行纯本地文字问答。<a href="https://support.blizzard.com/">暴雪支持</a></p></section>
 <div id="status" class="status" role="status">等待输入</div>
 <form id="form"><textarea id="input" maxlength="4000" aria-label="问题" placeholder="输入问题…"></textarea>
 <button id="send" type="submit">发送</button></form></main>
@@ -61,11 +62,11 @@ border-radius:8px;padding:10px;font:inherit}textarea:focus{outline:2px solid #ff
 const bridge=(type,payload={})=>chrome.webview.postMessage(JSON.stringify({version:1,type,payload}));
 const messages=document.querySelector('#messages'),input=document.querySelector('#input'),status=document.querySelector('#status');
 function append(kind,text){const p=document.createElement('p');p.className='message '+kind;p.textContent=text;messages.append(p);messages.scrollTop=messages.scrollHeight}
-document.querySelector('#form').addEventListener('submit',e=>{e.preventDefault();const text=input.value.trim();if(!text){status.textContent='请输入内容';input.focus();return}append('user',text);bridge('send_message',{text});input.value='';status.textContent='正在生成本地模拟回复…'});
+document.querySelector('#form').addEventListener('submit',e=>{e.preventDefault();const text=input.value.trim();if(!text){status.textContent='请输入内容';input.focus();return}append('user',text);bridge('send_message',{text});input.value='';status.textContent='正在请求本地模型…'});
 input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.querySelector('#form').requestSubmit()}});
 document.querySelector('#pass').addEventListener('click',()=>bridge('set_interaction',{enabled:false}));
 document.addEventListener('click',e=>{const link=e.target.closest('a[href]');if(!link)return;e.preventDefault();bridge('open_external',{url:link.href})});
-chrome.webview.addEventListener('message',e=>{const m=e.data;if(!m||m.version!==1)return;if(m.type==='assistant_message'){append('assistant',m.text);status.textContent='模拟回复完成'}else if(m.type==='status'){status.textContent=m.text}});
+chrome.webview.addEventListener('message',e=>{const m=e.data;if(!m||m.version!==1)return;if(m.type==='assistant_message'){append('assistant',m.text);status.textContent='本地回复完成'}else if(m.type==='status'){status.textContent=m.text}});
 bridge('ready');
 </script></body></html>)HTML";
 
@@ -187,6 +188,7 @@ struct OverlayWindow::State final {
     HWND target{};
     std::optional<wowai::capture::Rect> content_rect;
     StatusSink status_sink;
+    MessageSink message_sink;
     bool interaction_enabled{true};
     bool webview_initialized{};
     bool document_ready{};
@@ -257,10 +259,12 @@ class OverlayWindow::WindowClassRegistration final {
     ATOM atom_{};
 };
 
-OverlayWindow::OverlayWindow(const HINSTANCE instance, StatusSink status_sink)
+OverlayWindow::OverlayWindow(const HINSTANCE instance, StatusSink status_sink,
+                             MessageSink message_sink)
     : window_class_(std::make_unique<WindowClassRegistration>(instance)),
       state_(std::make_shared<State>()) {
     state_->status_sink = std::move(status_sink);
+    state_->message_sink = std::move(message_sink);
     const DWORD extended_style = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP;
     state_->window =
         ::CreateWindowExW(extended_style, overlay_window_class, overlay_title, WS_POPUP, 0, 0, 440,
@@ -471,12 +475,17 @@ OverlayWindow::OverlayWindow(const HINSTANCE instance, StatusSink status_sink)
                                                         L"window to show it.");
                                                     break;
                                                 case WebMessageKind::send_message:
-                                                    state->post_json(make_assistant_message(
-                                                        "本地模拟回复：已收到你的问题（" +
-                                                        std::to_string(
-                                                            parsed.message->text.size()) +
-                                                        " 字节）。STEP-008 不会连接真实 Codex "
-                                                        "或网络。"));
+                                                    if (!state->message_sink) {
+                                                        state->post_json(make_status_message(
+                                                            "本地模型尚未配置。请配置 Host、Ollama "
+                                                            "端点和模型后重试。",
+                                                            true));
+                                                        break;
+                                                    }
+                                                    state->post_json(make_status_message(
+                                                        "正在通过 Codex 请求本地模型…"));
+                                                    state->message_sink(
+                                                        std::move(parsed.message->text));
                                                     break;
                                                 case WebMessageKind::set_interaction:
                                                     ::PostMessageW(state->window, WM_APP + 20,
@@ -529,6 +538,11 @@ OverlayWindow::~OverlayWindow() {
             state_->controller->Close();
         }
         if (state_->window != nullptr) {
+            MSG pending{};
+            while (::PeekMessageW(&pending, state_->window, WM_APP + 21, WM_APP + 21,
+                                  PM_REMOVE) != FALSE) {
+                delete reinterpret_cast<std::string*>(pending.lParam);
+            }
             ::DestroyWindow(state_->window);
             state_->window = nullptr;
         }
@@ -632,6 +646,32 @@ void OverlayWindow::toggle_interaction() noexcept {
     set_interaction_enabled(!interaction_enabled());
 }
 
+void OverlayWindow::post_assistant_message(std::string text) noexcept {
+    if (!state_ || state_->window == nullptr) {
+        return;
+    }
+    auto json = std::unique_ptr<std::string>{
+        new (std::nothrow) std::string{make_assistant_message(text)}};
+    if (!json || ::PostMessageW(state_->window, WM_APP + 21, 0,
+                                reinterpret_cast<LPARAM>(json.get())) == FALSE) {
+        return;
+    }
+    static_cast<void>(json.release());
+}
+
+void OverlayWindow::post_status(std::string text, const bool error) noexcept {
+    if (!state_ || state_->window == nullptr) {
+        return;
+    }
+    auto json = std::unique_ptr<std::string>{
+        new (std::nothrow) std::string{make_status_message(text, error)}};
+    if (!json || ::PostMessageW(state_->window, WM_APP + 21, 0,
+                                reinterpret_cast<LPARAM>(json.get())) == FALSE) {
+        return;
+    }
+    static_cast<void>(json.release());
+}
+
 bool OverlayWindow::interaction_enabled() const noexcept {
     return state_ && state_->interaction_enabled;
 }
@@ -669,6 +709,13 @@ LRESULT OverlayWindow::handle_message(State* const state, const HWND window, con
         apply_interaction_style(window, state->interaction_enabled);
         if (!state->interaction_enabled && state->target != nullptr) {
             ::SetForegroundWindow(state->target);
+        }
+        return 0;
+    }
+    if (message == WM_APP + 21) {
+        const std::unique_ptr<std::string> json{reinterpret_cast<std::string*>(lparam)};
+        if (json) {
+            state->post_json(*json);
         }
         return 0;
     }

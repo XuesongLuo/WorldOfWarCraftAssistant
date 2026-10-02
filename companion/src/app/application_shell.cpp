@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -116,8 +118,14 @@ ApplicationShell::ApplicationShell(const HINSTANCE instance) : instance_(instanc
     lifecycle_.transition_to(LifecycleState::waiting_for_wow);
     selection_store_ = std::make_unique<wowai::capture::SelectionStore>(
         wowai::capture::SelectionStore::default_path());
+    try {
+        assistant_session_ = wowai::codex::AssistantSession::from_environment();
+    } catch (const std::exception& error) {
+        assistant_configuration_error_ = error.what();
+    }
     overlay_window_ = std::make_unique<wowai::overlay::OverlayWindow>(
-        instance_, [this](std::wstring status) { set_status(std::move(status)); });
+        instance_, [this](std::wstring status) { set_status(std::move(status)); },
+        [this](std::string question) { submit_question(std::move(question)); });
     if (::SetTimer(window_.get(), overlay_timer, 100, nullptr) == 0) {
         throw_last_error("SetTimer failed");
     }
@@ -131,6 +139,10 @@ ApplicationShell::~ApplicationShell() {
     if (window_) {
         ::KillTimer(window_.get(), overlay_timer);
     }
+    if (request_thread_.joinable()) {
+        request_thread_.join();
+    }
+    assistant_session_.reset();
     overlay_window_.reset();
     tray_icon_.reset();
     window_.reset();
@@ -478,6 +490,44 @@ void ApplicationShell::set_status(std::wstring detail) noexcept {
     if (window_) {
         ::InvalidateRect(window_.get(), nullptr, TRUE);
     }
+}
+
+void ApplicationShell::submit_question(std::string question) noexcept {
+    if (!overlay_window_) {
+        return;
+    }
+    if (!assistant_session_) {
+        std::string detail = assistant_configuration_error_.empty()
+                                 ? "本地 Host 尚未配置。请设置 WOWAI_NODE_BINARY、"
+                                   "WOWAI_HOST_SCRIPT、WOWAI_MODEL_PROVIDER、"
+                                   "WOWAI_LOCAL_MODEL_ENDPOINT、WOWAI_LOCAL_MODEL 以及 "
+                                   "WOWAI_CODEX_BINARY/LOCK/ROOT。"
+                                 : "本地 Host 配置无效：" + assistant_configuration_error_;
+        overlay_window_->post_status(std::move(detail), true);
+        return;
+    }
+    if (request_active_.exchange(true)) {
+        overlay_window_->post_status("已有本地请求正在处理，请等待完成。", true);
+        return;
+    }
+    if (request_thread_.joinable()) {
+        request_thread_.join();
+    }
+    request_thread_ = std::jthread([this, question = std::move(question)] {
+        try {
+            const std::string answer =
+                assistant_session_->ask(question, std::chrono::milliseconds{30'000});
+            if (overlay_window_) {
+                overlay_window_->post_assistant_message(answer);
+            }
+        } catch (const std::exception& error) {
+            if (overlay_window_) {
+                overlay_window_->post_status(
+                    "本地模型请求失败：" + std::string{error.what()}, true);
+            }
+        }
+        request_active_ = false;
+    });
 }
 
 } // namespace wowai::app

@@ -16,6 +16,8 @@ Win32 回调中出现的 `HWND` 仅为借用引用，不转移所有权。
 | TypeScript Host 进程、匿名管道和 Job Object | `HostProcess` | `wil::unique_handle`；Job 使用 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` | 先关闭 stdin 并限时等待；超时仅终止所属 Job 进程树 |
 | Host stderr 排空线程 | `HostProcess` | `std::thread` | 子进程退出、stderr 管道 EOF 后 join |
 | Codex App Server 子进程 | TypeScript Host；进程树最终由 C++ `HostProcess` Job 拥有 | Node `ChildProcess` + stdin/stdout/stderr 管道 | Host 先关闭 App Server stdin 并限时等待；Host 被终止时 Job 同步清理后代 |
+| 本地问答工作线程 | `ApplicationShell` | `std::jthread` | 退出时先 join，再释放 `AssistantSession` 与覆盖层；同一时刻仅允许一个请求 |
+| 跨线程覆盖层消息 | `OverlayWindow` | 堆分配 JSON + 私有 `WM_APP` 消息 | UI 线程消费后释放；窗口销毁前清空仍排队消息 |
 
 退出统一经过主窗口 `WM_DESTROY`：先删除托盘图标，再结束消息循环。后续加入浮层、捕获和
 Codex 子进程时，必须在销毁主窗口之前取消请求、释放图形资源，并只关闭本进程创建的子进程。
@@ -27,6 +29,10 @@ STEP-009 的 `HostProcess` 通过挂起创建避免“子进程先逃离 Job”�
 STEP-010 中 App Server stdout 只进入 TypeScript 内部解析器，不直接转发给 C++；App Server
 stderr 仍只进入 Host stderr 并设置 64 KiB 上限。Node 子进程继承 C++ 已建立的不可逃逸 Job，
 正常关闭顺序为取消 turn、关闭 App Server stdin、等待/终止 App Server、再退出 Host。
+
+STEP-011 中 `ApplicationShell` 唯一拥有 `AssistantSession` 和一个本地问答线程。退出顺序为停止
+UI 接收新输入、等待当前请求、释放会话（从而关闭 Host/Job），最后销毁覆盖层。工作线程不得
+直接访问 WebView2；它只向覆盖层窗口投递拥有型 JSON 消息，由 UI 线程消费或在析构时回收。
 
 `resources.hpp` 是平台资源类型的统一入口。新代码不得把拥有型裸 `HANDLE`、`HWND` 或 COM
 接口指针存入成员；确需自定义资源时应使用 WIL `unique_any` 或等价的不可复制 RAII 类。

@@ -59,3 +59,21 @@ The `mock` provider is deterministic and offline. It never launches Codex, acces
   production tool registry is empty until later read-only knowledge tools are implemented.
 - Tool policy validates the exact tool name, strict arguments, and strict result before any result
   can return to App Server. STEP-010 registers no executable tools.
+
+## STEP-011 local model boundary
+
+- The companion emits only `runtime.provider: "local-ollama"`, an explicit model name, empty image
+  and observation arrays, and `allowCloudUpload: false`. The existing request schema bounds and
+  validates the question before Host I/O.
+- Local mode requires the locked real App Server configuration and an explicit credential-free HTTP
+  loopback Ollama origin. Missing, partial, non-loopback, HTTPS, path-bearing, or credential-bearing
+  configuration fails closed; no model pull, install, discovery substitution, or cloud fallback is
+  implemented.
+- Before each local turn, the Host probes Ollama version, installed models, and model capabilities.
+  It accepts only the exact configured model and records whether vision and tools are supported.
+- Local turns request the exact `AssistantResponse.answer` shape as JSON Schema. Host parses the
+  returned text as strict JSON and maps malformed, missing, unknown, oversized, or mistyped fields
+  to `AI_INVALID_RESPONSE` rather than displaying untrusted partial output.
+- The overlay/C++ bridge permits one in-flight request. Completion and actionable errors return to
+  the UI thread through owned messages; shutdown joins the request thread before releasing the Host,
+  overlay, and process Job.

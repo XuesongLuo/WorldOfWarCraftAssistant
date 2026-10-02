@@ -3,6 +3,13 @@ import { resolve } from 'node:path';
 import type { Writable } from 'node:stream';
 
 import { prepareApplicationDirectories } from '../host/application-directories.js';
+import {
+  appServerProviderArguments,
+  localModelConfigurationFromEnvironment,
+  probeLocalModel,
+  type LocalModelCapabilities,
+  type LocalModelConfiguration,
+} from '../local-model/provider.js';
 import { AppServerCodexRuntime } from '../runtime/app-server-runtime.js';
 import { loadRuntimeLock, verifyRuntimeBinary } from '../runtime/runtime-lock.js';
 import { AppServerClient } from './client.js';
@@ -20,6 +27,7 @@ export async function startAppServerRuntime(
   const lock = await loadRuntimeLock(options.lockPath);
   await verifyRuntimeBinary(options.binaryPath, lock);
   const directories = await prepareApplicationDirectories(options.applicationRoot);
+  const localModel = localModelConfigurationFromEnvironment(process.env);
   const child = spawn(
     options.binaryPath,
     [
@@ -30,6 +38,7 @@ export async function startAppServerRuntime(
       'analytics.enabled=false',
       '-c',
       'web_search="disabled"',
+      ...(localModel === undefined ? [] : appServerProviderArguments(localModel)),
     ],
     {
       cwd: directories.workspace,
@@ -45,7 +54,13 @@ export async function startAppServerRuntime(
     output: child.stdin,
     diagnostics: options.diagnostics,
   });
-  const runtime = new OwnedAppServerRuntime(client, directories.workspace, child);
+  const runtime = new OwnedAppServerRuntime(
+    client,
+    directories.workspace,
+    child,
+    localModel,
+    localModel === undefined ? undefined : () => probeLocalModel(localModel),
+  );
   try {
     await runtime.start();
     return runtime;
@@ -82,8 +97,10 @@ class OwnedAppServerRuntime extends AppServerCodexRuntime {
     client: AppServerClient,
     workspace: string,
     private readonly child: ChildProcessWithoutNullStreams,
+    localModel?: LocalModelConfiguration,
+    capabilityProbe?: () => Promise<LocalModelCapabilities>,
   ) {
-    super(client, workspace);
+    super(client, workspace, localModel, capabilityProbe);
   }
 
   public override async close(): Promise<void> {
