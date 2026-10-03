@@ -13,10 +13,9 @@ namespace wowai::storage {
 
 enum class CloudRequestAuthorization {
     allowed,
+    allowed_with_warning,
     cloud_disabled,
     duplicate,
-    session_limit,
-    daily_limit,
     monthly_limit,
 };
 

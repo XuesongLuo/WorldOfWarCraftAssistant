@@ -46,7 +46,7 @@ TEST_CASE("local database migrates first install and persists validated settings
     const auto database_path = directory.path() / L"assistant.db";
     {
         wowai::storage::LocalDatabase database{database_path};
-        CHECK(database.schema_version() == 3);
+        CHECK(database.schema_version() == 4);
         CHECK(database.load_settings() == wowai::storage::AssistantSettings::defaults());
 
         auto settings = wowai::storage::AssistantSettings::defaults();
@@ -65,7 +65,7 @@ TEST_CASE("local database migrates first install and persists validated settings
 
 TEST_CASE("local database supports a non-persistent safe fallback") {
     wowai::storage::LocalDatabase database{std::filesystem::path{L":memory:"}};
-    CHECK(database.schema_version() == 3);
+    CHECK(database.schema_version() == 4);
     auto settings = database.load_settings();
     settings.overlay_opacity_percent = 75;
     database.save_settings(settings);
@@ -127,7 +127,7 @@ TEST_CASE("corrupt local database is archived and defaults recover") {
         output << "not-a-sqlite-database";
     }
     wowai::storage::LocalDatabase database{path};
-    CHECK(database.schema_version() == 3);
+    CHECK(database.schema_version() == 4);
     CHECK(database.load_settings() == wowai::storage::AssistantSettings::defaults());
     std::size_t backups{};
     for (const auto& entry : std::filesystem::directory_iterator(directory.path())) {
@@ -150,7 +150,7 @@ TEST_CASE("local database upgrades v1 atomically and refuses a newer schema") {
     ::sqlite3_close(raw);
     {
         wowai::storage::LocalDatabase upgraded{path};
-        CHECK(upgraded.schema_version() == 3);
+        CHECK(upgraded.schema_version() == 4);
         upgraded.clear_conversations();
     }
     REQUIRE(::sqlite3_open(reinterpret_cast<const char*>(path_text.c_str()), &raw) == SQLITE_OK);
@@ -239,6 +239,10 @@ TEST_CASE("cloud settings persist non-secret metadata and reject unsafe identifi
     settings.cloud_resource = "workspace-42";
     settings.cloud_region = "unknown";
     CHECK_FALSE(settings.valid());
+    settings.cloud_region = "singapore";
+    settings.cloud_session_request_limit = 0;
+    settings.cloud_daily_request_limit = 0;
+    CHECK(settings.valid());
 }
 
 TEST_CASE("cloud master switch prevents secure session startup") {
@@ -249,16 +253,16 @@ TEST_CASE("cloud master switch prevents secure session startup") {
     CHECK(wowai::codex::AssistantSession::from_secure_settings(settings, credentials) == nullptr);
 }
 
-TEST_CASE("cloud request audit enforces idempotency and request caps without content") {
+TEST_CASE("cloud request audit warns softly and enforces idempotency and monthly cap") {
     TestDirectory directory;
     wowai::storage::LocalDatabase database{directory.path() / L"assistant.db"};
     auto settings = database.load_settings();
     settings.cloud_enabled = true;
     settings.cloud_provider = "xai";
     settings.cloud_model = "grok-4.7";
-    settings.cloud_session_request_limit = 2;
-    settings.cloud_daily_request_limit = 3;
-    settings.cloud_monthly_request_limit = 4;
+    settings.cloud_session_request_limit = 1;
+    settings.cloud_daily_request_limit = 1;
+    settings.cloud_monthly_request_limit = 3;
     database.save_settings(settings);
     using Authorization = wowai::storage::CloudRequestAuthorization;
     CHECK(database.authorize_cloud_request(settings, 0, "request-one", "api.x.ai", true) ==
@@ -266,10 +270,12 @@ TEST_CASE("cloud request audit enforces idempotency and request caps without con
     CHECK(database.authorize_cloud_request(settings, 1, "request-one", "api.x.ai", true) ==
           Authorization::duplicate);
     CHECK(database.authorize_cloud_request(settings, 1, "request-two", "api.x.ai", false) ==
-          Authorization::allowed);
+          Authorization::allowed_with_warning);
     CHECK(database.authorize_cloud_request(settings, 2, "request-three", "api.x.ai", false) ==
-          Authorization::session_limit);
-    CHECK(database.cloud_audit_count() == 2);
+          Authorization::allowed_with_warning);
+    CHECK(database.authorize_cloud_request(settings, 3, "request-four", "api.x.ai", false) ==
+          Authorization::monthly_limit);
+    CHECK(database.cloud_audit_count() == 3);
     const auto bytes = read_binary(database.path());
     CHECK(bytes.find("question body") == std::string::npos);
     CHECK(bytes.find("image/png;base64") == std::string::npos);

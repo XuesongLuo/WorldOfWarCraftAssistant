@@ -69,12 +69,10 @@ bool AssistantSettings::valid() const noexcept {
         (cloud_provider != "dashscope" || !cloud_enabled ||
          (!cloud_resource.empty() && supported_dashscope_region(cloud_region))) &&
         (cloud_provider != "azure-openai" || !cloud_enabled || !cloud_resource.empty());
-    const bool limits = cloud_session_request_limit >= 1 && cloud_session_request_limit <= 10'000 &&
-                        cloud_daily_request_limit >= cloud_session_request_limit &&
+    const bool limits = cloud_session_request_limit <= 10'000 &&
                         cloud_daily_request_limit <= 100'000 &&
-                        cloud_monthly_request_limit >= cloud_daily_request_limit &&
-                        cloud_monthly_request_limit <= 1'000'000 &&
-                        cloud_stop_threshold_percent >= 1 && cloud_stop_threshold_percent <= 100;
+                        cloud_monthly_request_limit >= 1 &&
+                        cloud_monthly_request_limit <= 1'000'000;
     return (hotkey_modifiers & ~allowed_modifiers) == 0 && meaningful_modifiers != 0 &&
            supported_key && overlay_opacity_percent >= 20 && overlay_opacity_percent <= 100 &&
            overlay_font_size_px >= 12 && overlay_font_size_px <= 28 && cloud_metadata && limits;

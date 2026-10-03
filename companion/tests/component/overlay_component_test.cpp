@@ -110,7 +110,9 @@ int main() {
             [](const wowai::storage::AssistantSettings&, const std::optional<std::string>&) {
                 return true;
             },
-            [] { return true; }, [](std::string_view, std::string_view) { return true; }};
+            [] { return true; }, [](std::string_view, std::string_view) { return true; },
+            [](const wowai::storage::AssistantSettings&, const std::optional<std::string>&,
+               std::stop_token) { return std::string{"ok"}; }};
         settings.show(wowai::storage::AssistantSettings::defaults());
         if (!settings.visible()) {
             return 22;

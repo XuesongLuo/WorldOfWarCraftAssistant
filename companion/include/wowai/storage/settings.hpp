@@ -25,7 +25,6 @@ struct AssistantSettings {
     std::uint32_t cloud_session_request_limit{20};
     std::uint32_t cloud_daily_request_limit{100};
     std::uint32_t cloud_monthly_request_limit{1'000};
-    std::uint32_t cloud_stop_threshold_percent{100};
 
     [[nodiscard]] static AssistantSettings defaults() noexcept;
     [[nodiscard]] bool valid() const noexcept;

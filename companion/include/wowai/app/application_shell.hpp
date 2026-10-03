@@ -61,6 +61,9 @@ class ApplicationShell final {
                                       const std::optional<std::string>& api_key) noexcept;
     [[nodiscard]] bool delete_cloud_credential(std::string_view provider,
                                                std::string_view profile) noexcept;
+    [[nodiscard]] std::string
+    test_cloud_connection(const wowai::storage::AssistantSettings& settings,
+                          const std::optional<std::string>& api_key, std::stop_token stop_token);
     void reload_assistant_session() noexcept;
     [[nodiscard]] bool delete_local_data() noexcept;
     void show_tray_menu() noexcept;

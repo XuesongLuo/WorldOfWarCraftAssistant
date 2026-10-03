@@ -31,7 +31,7 @@ API 联调，并为以后增加其他 OpenAI-compatible 云端模型保留稳定
 
 - DeepSeek App Server 参数固定为官方 base URL、`DEEPSEEK_API_KEY` 和 `wire_api="responses"`。
 - 缺少凭据、同意、精确模型或 provider 不匹配时，在线程创建前失败关闭。
-- `deepseek-flash` 可走文字与逐张确认截图路径；未登记视觉能力的模型拒绝截图。
+- `deepseek-flash` 可走文字与逐张预览后发送授权的截图路径；未登记视觉能力的模型拒绝截图。
 - 切换提供方不会改变截图预处理、临时文件清理、工具拒绝和持续观察本地隔离边界。
 
 ## 依据

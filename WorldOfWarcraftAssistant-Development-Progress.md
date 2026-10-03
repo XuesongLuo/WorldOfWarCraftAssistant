@@ -1,10 +1,10 @@
 # World of Warcraft AI Assistant 开发进度与 Agent 执行手册
 
-> 文档版本：v0.25  
+> 文档版本：v0.27  
 > 当前状态：开发中  
 > 当前里程碑：M0 技术可行性 PoC  
 > 当前步骤：STEP-021 已完成；等待进入 STEP-014，STEP-012/007B 人工验证并行  
-> 更新日期：2026-10-03  
+> 更新日期：2026-10-04  
 > 产品需求：[WorldOfWarcraftAssistant-PRD.md](./WorldOfWarcraftAssistant-PRD.md)  
 > 技术基线：[WorldOfWarcraftAssistant-Technical-Design.md](./WorldOfWarcraftAssistant-Technical-Design.md)  
 
@@ -69,7 +69,8 @@ Agent 每次开始工作时必须按以下顺序执行：
 - 不得让 Codex 执行 Shell、修改文件、控制计算机或调用未知工具。
 - 不得自动接受 Codex 审批请求。
 - 不得读取用户全局 Codex 配置、Skills、Plugins 或 MCP 连接。
-- 不得默认上传截图或聊天内容；截图必须由玩家主动触发并确认。
+- 不得默认上传截图或聊天内容；截图必须由玩家主动触发并预览，预览存在时点击“发送”才构成
+  本次上传授权。
 - 不得在没有授权和来源记录时抓取或分发第三方游戏资料。
 
 ## 3. 进度总览
@@ -409,10 +410,10 @@ WoW 插件验证必须使用正式服客户端的人工测试记录，不得用�
 
 前置条件：M0 放行；ADR-004 有结论。
 
-执行内容：统一技能教学与成就、坐骑、宠物、配装知识条目，补充技能、天赋、资源机制、优先级规则和游戏版本字段，并实现区域/语言过滤、来源、过期策略、本地索引和离线缓存。
+执行内容：统一技能教学与成就、坐骑、宠物、配装知识条目，补充技能、天赋、资源机制、优先级规则和游戏版本字段。以国服正式服/简体中文为首发体验，核心玩法知识按稳定 ID 和版本统一建模，`region` 仅用于服务、本地化和有官方证据的区域例外。实现来源、过期策略、本地索引和版本化快照；本地快照用于可重现性和单一上游故障降级，不承诺 WoW 断网玩法。
 
 - [ ] 实现完成
-- [ ] 验证通过：同名、别名、ID、区域混用、过期和离线场景通过
+- [ ] 验证通过：同名、别名、ID、本地化覆盖、有证据的区域例外、过期和上游不可用场景通过
 
 ### STEP-015：资料许可和黄金问题集
 
@@ -503,16 +504,17 @@ C++ 截图保持内存态，启动时清理专属临时目录残留；诊断日�
 执行内容：把 M0 的开发期环境变量凭据迁移到 Windows Credential Manager/DPAPI；实现账号/项目选择、费用与上传提示、用量限额、限流退避、请求幂等和防重复计费，以及关闭云端后的网络阻断。本地模型适配器不属于普通玩家范围。
 
 实现说明：设置页提供云端总开关、Provider、连接/目的域提示、精确模型/部署、profile、条件化
-organization/region/workspace/resource/api-version、密码框凭据替换/删除和会话/日/月上限。凭据按
-provider/profile 使用 DPAPI；SQLite v3 仅保存非秘密配置与请求审计元数据。C++ 只向本应用 Host
+organization/region/workspace/resource/api-version、密码框凭据替换/删除、可选会话/每日提醒和月度
+硬上限。凭据按 provider/profile 使用 DPAPI；SQLite v4 仅保存非秘密配置与请求审计元数据。C++ 只向本应用 Host
 注入当前一把 key，Host 再最小化传给 App Server；父环境其他 provider key 被剔除。OpenAI、
 DeepSeek、xAI、OpenRouter、DashScope 和 Azure OpenAI 走受控 Responses 策略；Anthropic、
-Gemini、Mistral 原生协议因锁定 0.159.2 只支持 Responses 而明确暂不启用。连接测试固定为 Mock。
-请求在外发前执行 request ID 幂等和会话/UTC 日/月停止阈值；provider/App Server 自动重试为零，
+Gemini、Mistral 原生协议因锁定 0.159.2 只支持 Responses 而明确暂不启用。自动化连接测试使用 Mock；
+设置页另提供逐次确认的固定短文本真实测试，不带截图、观察数据或玩家信息且不自动重试。请求在
+外发前执行 request ID 幂等和月度硬上限；会话/UTC 每日值只提醒且可设为 `0` 关闭；provider/App Server 自动重试为零，
 限流遵循有界 Retry-After 冷却，图片失败后不会自动重发。详见 ADR-019 与 STEP-021 验证记录。
 
 - [x] 实现完成
-- [x] 验证通过：云端关闭不创建 Host/App Server；Mock 验证重复 ID、限额、Retry-After 和图片零自动重发，不调用真实 API
+- [x] 验证通过：云端关闭不创建 Host/App Server；Mock 验证重复 ID、提醒/月度硬上限、Retry-After 和图片零自动重发；自动验证不调用真实 API
 
 ### STEP-022：M1 MVP 验收
 
@@ -1015,6 +1017,8 @@ docs/
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
+| v0.27 | 2026-10-04 | 简化过度防御：删除百分比停止阈值；会话/每日改为可选提醒、月度保留硬上限；增加逐次确认的最小真实连接测试；截图预览后的“发送”即本次上传授权 |
+| v0.26 | 2026-10-04 | 接受 ADR-004：国服正式服/简体中文优先，核心玩法知识按版本统一建模，区域仅作服务/本地化/已证实例外覆盖；本地快照不再承诺 WoW 断网使用 |
 | v0.25 | 2026-10-03 | 完成 STEP-021：统一云端设置、六种受控 Responses 配置、provider/profile DPAPI、最小进程注入、SQLite v3 审计、用量/幂等/Retry-After 保护；三种原生非 Responses 协议明确暂不启用 |
 | v0.24 | 2026-10-03 | 收尾 STEP-019 全局快捷键与设置页；完成 STEP-020 SQLite v2、DPAPI、会话隐私、截图清理、轮转脱敏日志和本地数据删除 |
 | v0.23 | 2026-10-03 | 完成 STEP-019 可与真实 WoW 解耦部分：请求取消/超时、Host/App Server 安全恢复、云端错误分类、覆盖层请求状态与自动脱敏回归；快捷键和设置页仍未完成 |

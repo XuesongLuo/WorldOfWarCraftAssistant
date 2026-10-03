@@ -114,8 +114,8 @@ ActionableError actionable_error(const std::string_view code, const bool recover
         return {"模型回复结构无效，未向聊天区显示不可信的部分内容。", "点击重试或更换模型"};
     }
     if (code == "AI_USAGE_LIMIT_REACHED") {
-        return {"已达到会话、日或月用量停止阈值，本次请求未发送。",
-                "在设置中审查费用风险后调整上限"};
+        return {"已达到月度云端请求硬上限，本次请求未发送。",
+                "在设置中审查费用风险后调整月度上限"};
     }
     if (code == "AI_DUPLICATE_REQUEST_BLOCKED") {
         return {"已阻止重复请求以避免重复计费。", "无需重试；如需新问题请重新提交"};
@@ -255,6 +255,10 @@ ApplicationShell::ApplicationShell(const HINSTANCE instance)
         [this] { return delete_local_data(); },
         [this](const std::string_view provider, const std::string_view profile) {
             return delete_cloud_credential(provider, profile);
+        },
+        [this](const wowai::storage::AssistantSettings& value,
+               const std::optional<std::string>& key, const std::stop_token stop_token) {
+            return test_cloud_connection(value, key, stop_token);
         });
     const bool hotkey_conflict =
         global_hotkey_->apply(settings_) == wowai::platform::HotkeyApplyResult::conflict;
@@ -538,6 +542,33 @@ bool ApplicationShell::delete_cloud_credential(const std::string_view provider,
             safe_log_->error("credential.delete_failed");
         return false;
     }
+}
+
+std::string ApplicationShell::test_cloud_connection(
+    const wowai::storage::AssistantSettings& settings,
+    const std::optional<std::string>& api_key, const std::stop_token stop_token) {
+    auto session = wowai::codex::AssistantSession::from_connection_test(
+        settings, *credential_store_, api_key);
+    if (!session)
+        throw std::runtime_error("请先启用云端模型。");
+
+    const std::string request_id = new_uuid_text();
+    const auto authorization = database_->authorize_cloud_request(
+        settings, 0, request_id, session->destination_host(), false);
+    if (authorization == wowai::storage::CloudRequestAuthorization::duplicate)
+        throw std::runtime_error("连接测试请求被幂等保护阻止。");
+    if (authorization == wowai::storage::CloudRequestAuthorization::monthly_limit)
+        throw std::runtime_error("已达到月度硬上限；未发送连接测试。");
+    if (authorization != wowai::storage::CloudRequestAuthorization::allowed &&
+        authorization != wowai::storage::CloudRequestAuthorization::allowed_with_warning)
+        throw std::runtime_error("连接测试未获准发送。");
+
+    static_cast<void>(session->ask("Connection test. Reply with OK only.",
+                                   std::chrono::milliseconds{15'000}, std::nullopt,
+                                   nlohmann::json::array(), nullptr, false, stop_token,
+                                   request_id));
+    return "真实连接成功。已发送固定短文本且仅请求最短回复；未发送截图、观察数据或玩家信息，"
+           "也未自动重试。";
 }
 
 void ApplicationShell::reload_assistant_session() noexcept {
@@ -1099,22 +1130,26 @@ void ApplicationShell::submit_question(std::string question) noexcept {
     // cross the cloud boundary; plugin-public structured context is independently opt-in.
     const bool observation_enabled = false;
     const std::string request_id = new_uuid_text();
+    bool usage_warning = false;
     try {
         const auto authorization = database_->authorize_cloud_request(
             settings_, cloud_session_requests_, request_id, assistant_session_->destination_host(),
             confirmed_image.has_value());
-        if (authorization != wowai::storage::CloudRequestAuthorization::allowed) {
+        if (authorization != wowai::storage::CloudRequestAuthorization::allowed &&
+            authorization != wowai::storage::CloudRequestAuthorization::allowed_with_warning) {
             request_active_ = false;
             const bool duplicate =
                 authorization == wowai::storage::CloudRequestAuthorization::duplicate;
             overlay_window_->post_request_state(
                 "error",
                 duplicate ? "已阻止重复请求，避免重复计费。"
-                          : "已达到配置的云端用量停止阈值；本次请求未发送。",
+                          : "已达到月度云端请求硬上限；本次请求未发送。",
                 duplicate ? "AI_DUPLICATE_REQUEST_BLOCKED" : "AI_USAGE_LIMIT_REACHED", false,
-                "在设置中检查会话/日/月上限；提高上限前请确认费用");
+                "在设置中检查月度硬上限；提高上限前请确认费用");
             return;
         }
+        usage_warning =
+            authorization == wowai::storage::CloudRequestAuthorization::allowed_with_warning;
         ++cloud_session_requests_;
         if (safe_log_) {
             safe_log_->info("cloud.request",
@@ -1133,7 +1168,9 @@ void ApplicationShell::submit_question(std::string question) noexcept {
     if (confirmed_image) {
         discard_screenshot();
     }
-    overlay_window_->post_request_state("submitting", "正在请求已启用的云端模型…");
+    overlay_window_->post_request_state(
+        "submitting", usage_warning ? "已达到会话/每日提醒值；仍按你的设置继续请求云端模型…"
+                                    : "正在请求已启用的云端模型…");
     request_thread_ = std::jthread([this, question = std::move(question),
                                     image = std::move(confirmed_image), observations, visual_bridge,
                                     observation_enabled,

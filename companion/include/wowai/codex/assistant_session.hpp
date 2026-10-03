@@ -74,6 +74,10 @@ class AssistantSession final {
     [[nodiscard]] static std::unique_ptr<AssistantSession>
     from_secure_settings(const wowai::storage::AssistantSettings& settings,
                          const wowai::storage::CredentialStore& credentials);
+    [[nodiscard]] static std::unique_ptr<AssistantSession>
+    from_connection_test(const wowai::storage::AssistantSettings& settings,
+                         const wowai::storage::CredentialStore& credentials,
+                         const std::optional<std::string>& transient_credential);
     [[nodiscard]] std::string_view provider() const noexcept { return provider_; }
     [[nodiscard]] std::string_view model() const noexcept { return model_; }
     [[nodiscard]] std::string destination_host() const;

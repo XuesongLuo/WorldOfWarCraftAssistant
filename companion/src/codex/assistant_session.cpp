@@ -367,6 +367,13 @@ std::unique_ptr<AssistantSession> AssistantSession::from_environment() {
 std::unique_ptr<AssistantSession>
 AssistantSession::from_secure_settings(const wowai::storage::AssistantSettings& settings,
                                        const wowai::storage::CredentialStore& credentials) {
+    return from_connection_test(settings, credentials, std::nullopt);
+}
+
+std::unique_ptr<AssistantSession> AssistantSession::from_connection_test(
+    const wowai::storage::AssistantSettings& settings,
+    const wowai::storage::CredentialStore& credentials,
+    const std::optional<std::string>& transient_credential) {
     if (!settings.cloud_enabled)
         return nullptr;
     if (!settings.valid())
@@ -379,7 +386,10 @@ AssistantSession::from_secure_settings(const wowai::storage::AssistantSettings& 
     if (!node || !host || !codex_binary || !codex_lock || !codex_root) {
         throw std::runtime_error("locked Host/App Server runtime paths are incomplete");
     }
-    auto secret = credentials.read(settings.cloud_provider, settings.cloud_profile);
+    auto secret = transient_credential;
+    if (!secret || secret->empty()) {
+        secret = credentials.read(settings.cloud_provider, settings.cloud_profile);
+    }
     if (!secret) {
         throw AssistantFailure("AI_CREDENTIALS_MISSING", "当前提供方/配置档未保存 API key。",
                                false);

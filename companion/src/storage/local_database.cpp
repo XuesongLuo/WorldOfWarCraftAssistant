@@ -11,7 +11,7 @@
 namespace wowai::storage {
 namespace {
 
-constexpr int current_schema_version = 3;
+constexpr int current_schema_version = 4;
 
 class DatabaseCorrupt final : public std::runtime_error {
   public:
@@ -99,11 +99,6 @@ void write_text(sqlite3* database, const char* key, const std::string_view value
     return ::sqlite3_column_int64(statement.get(), 0);
 }
 
-[[nodiscard]] std::uint32_t stopped_limit(const std::uint32_t configured,
-                                          const std::uint32_t percent) {
-    return std::max<std::uint32_t>(1, (configured * percent) / 100);
-}
-
 } // namespace
 
 LocalDatabase::LocalDatabase(std::filesystem::path path) : path_(std::move(path)) {
@@ -164,6 +159,10 @@ void LocalDatabase::open_and_migrate() {
             execute("CREATE INDEX cloud_request_audit_created_at ON "
                     "cloud_request_audit(created_at)");
             execute("PRAGMA user_version=3");
+        }
+        if (starting_version < 4) {
+            execute("DELETE FROM settings WHERE key='cloud.limit.stop_percent'");
+            execute("PRAGMA user_version=4");
         }
         execute("COMMIT");
     } catch (...) {
@@ -238,8 +237,6 @@ AssistantSettings LocalDatabase::load_settings() {
         read_integer(database_, "cloud.limit.day", result.cloud_daily_request_limit));
     result.cloud_monthly_request_limit = static_cast<std::uint32_t>(
         read_integer(database_, "cloud.limit.month", result.cloud_monthly_request_limit));
-    result.cloud_stop_threshold_percent = static_cast<std::uint32_t>(
-        read_integer(database_, "cloud.limit.stop_percent", result.cloud_stop_threshold_percent));
     if (!result.valid()) {
         restore_default_settings();
         return AssistantSettings::defaults();
@@ -270,7 +267,6 @@ void LocalDatabase::save_settings(const AssistantSettings& settings) {
         write_integer(database_, "cloud.limit.session", settings.cloud_session_request_limit);
         write_integer(database_, "cloud.limit.day", settings.cloud_daily_request_limit);
         write_integer(database_, "cloud.limit.month", settings.cloud_monthly_request_limit);
-        write_integer(database_, "cloud.limit.stop_percent", settings.cloud_stop_threshold_percent);
         if (!settings.save_conversation_history) {
             execute("DELETE FROM conversation_exchanges");
         }
@@ -335,20 +331,15 @@ CloudRequestAuthorization LocalDatabase::authorize_cloud_request(
     }
     if (::sqlite3_column_int64(duplicate.get(), 0) != 0)
         return CloudRequestAuthorization::duplicate;
-    if (session_requests >= stopped_limit(settings.cloud_session_request_limit,
-                                          settings.cloud_stop_threshold_percent)) {
-        return CloudRequestAuthorization::session_limit;
-    }
+    const bool session_warning = settings.cloud_session_request_limit != 0 &&
+                                 session_requests >= settings.cloud_session_request_limit;
     const auto daily = scalar_count(database_, "SELECT COUNT(*) FROM cloud_request_audit WHERE "
                                                "created_at >= datetime('now','start of day')");
-    if (daily >=
-        stopped_limit(settings.cloud_daily_request_limit, settings.cloud_stop_threshold_percent)) {
-        return CloudRequestAuthorization::daily_limit;
-    }
+    const bool daily_warning = settings.cloud_daily_request_limit != 0 &&
+                               daily >= settings.cloud_daily_request_limit;
     const auto monthly = scalar_count(database_, "SELECT COUNT(*) FROM cloud_request_audit WHERE "
                                                  "created_at >= datetime('now','start of month')");
-    if (monthly >= stopped_limit(settings.cloud_monthly_request_limit,
-                                 settings.cloud_stop_threshold_percent)) {
+    if (monthly >= settings.cloud_monthly_request_limit) {
         return CloudRequestAuthorization::monthly_limit;
     }
     Statement insert{database_, "INSERT INTO cloud_request_audit("
@@ -368,7 +359,8 @@ CloudRequestAuthorization LocalDatabase::authorize_cloud_request(
         }
         throw std::runtime_error("could not record cloud request audit metadata");
     }
-    return CloudRequestAuthorization::allowed;
+    return session_warning || daily_warning ? CloudRequestAuthorization::allowed_with_warning
+                                            : CloudRequestAuthorization::allowed;
 }
 
 std::int64_t LocalDatabase::cloud_audit_count() const {

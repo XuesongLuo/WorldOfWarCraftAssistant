@@ -5,7 +5,9 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <stop_token>
 #include <string>
+#include <thread>
 
 #include <windows.h>
 
@@ -17,9 +19,13 @@ class SettingsWindow final {
                                            const std::optional<std::string>&)>;
     using DeleteHandler = std::function<bool()>;
     using DeleteCredentialHandler = std::function<bool(std::string_view, std::string_view)>;
+    using ConnectionTestHandler =
+        std::function<std::string(const wowai::storage::AssistantSettings&,
+                                  const std::optional<std::string>&, std::stop_token)>;
 
     SettingsWindow(HINSTANCE instance, HWND owner, SaveHandler save_handler,
-                   DeleteHandler delete_handler, DeleteCredentialHandler delete_credential_handler);
+                   DeleteHandler delete_handler, DeleteCredentialHandler delete_credential_handler,
+                   ConnectionTestHandler connection_test_handler);
     ~SettingsWindow();
 
     SettingsWindow(const SettingsWindow&) = delete;
@@ -45,6 +51,9 @@ class SettingsWindow final {
     SaveHandler save_handler_;
     DeleteHandler delete_handler_;
     DeleteCredentialHandler delete_credential_handler_;
+    ConnectionTestHandler connection_test_handler_;
+    std::jthread connection_test_thread_;
+    bool connection_test_active_{};
     std::string credential_suffix_;
 };
 

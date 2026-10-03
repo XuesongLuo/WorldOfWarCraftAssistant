@@ -100,7 +100,8 @@ STEP-010 已实现锁定 App Server 的真实 stdio 启动、initialize、thread
 `覆盖层 → C++ → TypeScript Host → 锁定 Codex App Server → 所选云端模型 → 覆盖层`。
 产品不要求玩家电脑安装或运行本地大模型。STEP-021 已在托盘设置页提供统一入口：云端总开关、
 Provider、连接/目的域、精确模型或部署、profile、条件化 organization/region/workspace/resource/
-api-version、密码框 API Key、用量上限和 Mock 连接测试；任一必填项缺失都会失败关闭。
+api-version、密码框 API Key、可选会话/每日提醒、月度硬上限和用户主动的最小真实连接测试；任一
+必填项缺失都会失败关闭。
 
 当前受控接线包括 OpenAI、DeepSeek、xAI、OpenRouter、阿里云 DashScope/Qwen 和 Azure OpenAI。
 所有连接都要求 Responses/OpenResponses：锁定的 Codex App Server 0.159.2 实测拒绝 chat wire，
@@ -110,9 +111,11 @@ api-version、密码框 API Key、用量上限和 Mock 连接测试；任一必�
 
 API Key 按 provider/profile 存入当前用户 DPAPI，只显示配置状态与末尾最多四字符；SQLite 不存
 密钥。C++ 只向本应用启动的 Host 注入当前 key，Host 再只传给自己的 App Server，并剔除其他
-provider key。关闭云端时不启动 Host/App Server。请求在外发前受 request ID 幂等、会话/UTC
-日/月上限和停止阈值保护；失败/限流不会自动重发图片，App Server 重试为零并遵循 Retry-After
-冷却。审计只含 provider/profile/model/目的域/时间/是否含图，不记录正文、图片或凭据。
+provider key。关闭云端时不启动 Host/App Server。请求在外发前受 request ID 幂等和月度硬上限
+保护；会话/每日值可设为 `0` 关闭，否则只提醒而不阻断。失败/限流不会自动重发图片，App Server
+重试为零并遵循 Retry-After 冷却。审计只含 provider/profile/model/目的域/时间/是否含图，不记录
+正文、图片或凭据。连接测试只在再次确认后发送固定短文本、请求最短回复，不携带截图或玩家信息，
+不自动重试，并明确提示可能产生极小费用。
 
 开发环境回退必须另外显式开启；默认仍优先 DPAPI：
 
@@ -210,4 +213,6 @@ WoW 插件位于 `addon/WowAIAssistant/`。开发期静态验证执行：
 
 ## 安全提示
 
-不要提交真实 API 密钥、访问令牌、玩家截图、聊天正文、本地 Codex 配置或构建工具。截图只能由玩家主动触发并确认，Codex 的命令、文件修改、计算机控制和未知工具请求必须失败关闭。
+不要提交真实 API 密钥、访问令牌、玩家截图、聊天正文、本地 Codex 配置或构建工具。截图只能由
+玩家主动触发并预览；预览存在时点击“发送”即构成本次上传授权。Codex 的命令、文件修改、计算机
+控制和未知工具请求必须失败关闭。

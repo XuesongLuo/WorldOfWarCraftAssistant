@@ -35,12 +35,17 @@ constexpr int control_credential_status = 121;
 constexpr int control_session_limit = 122;
 constexpr int control_daily_limit = 123;
 constexpr int control_monthly_limit = 124;
-constexpr int control_stop_percent = 125;
 constexpr int command_save = 201;
 constexpr int command_defaults = 202;
 constexpr int command_delete_data = 203;
 constexpr int command_delete_credential = 204;
 constexpr int command_test_configuration = 205;
+constexpr UINT connection_test_complete_message = WM_APP + 1;
+
+struct ConnectionTestResult {
+    bool succeeded{};
+    std::string message;
+};
 
 [[noreturn]] void throw_last_error(const char* operation) {
     throw std::system_error(static_cast<int>(::GetLastError()), std::system_category(), operation);
@@ -104,6 +109,19 @@ std::optional<std::string> get_ascii(const HWND window, const int identifier,
     return result;
 }
 
+std::wstring wide_from_utf8(const std::string_view value) {
+    if (value.empty())
+        return {};
+    const int size = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                           static_cast<int>(value.size()), nullptr, 0);
+    if (size <= 0)
+        return L"连接测试失败。";
+    std::wstring result(static_cast<std::size_t>(size), L'\0');
+    ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                          static_cast<int>(value.size()), result.data(), size);
+    return result;
+}
+
 std::string selected_provider(const HWND window) {
     constexpr std::array providers{"openai",     "deepseek",  "xai",
                                    "openrouter", "dashscope", "azure-openai"};
@@ -143,11 +161,13 @@ class SettingsWindow::WindowClassRegistration final {
 
 SettingsWindow::SettingsWindow(const HINSTANCE instance, const HWND owner, SaveHandler save_handler,
                                DeleteHandler delete_handler,
-                               DeleteCredentialHandler delete_credential_handler)
+                               DeleteCredentialHandler delete_credential_handler,
+                               ConnectionTestHandler connection_test_handler)
     : instance_(instance), owner_(owner),
       window_class_(std::make_unique<WindowClassRegistration>(instance)),
       save_handler_(std::move(save_handler)), delete_handler_(std::move(delete_handler)),
-      delete_credential_handler_(std::move(delete_credential_handler)) {
+      delete_credential_handler_(std::move(delete_credential_handler)),
+      connection_test_handler_(std::move(connection_test_handler)) {
     window_ = ::CreateWindowExW(WS_EX_TOOLWINDOW, settings_window_class, L"助手设置",
                                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT,
                                 CW_USEDEFAULT, 720, 760, owner_, nullptr, instance_, this);
@@ -157,6 +177,10 @@ SettingsWindow::SettingsWindow(const HINSTANCE instance, const HWND owner, SaveH
 }
 
 SettingsWindow::~SettingsWindow() {
+    if (connection_test_thread_.joinable()) {
+        connection_test_thread_.request_stop();
+        connection_test_thread_.join();
+    }
     if (window_ != nullptr) {
         ::DestroyWindow(window_);
         window_ = nullptr;
@@ -255,23 +279,20 @@ LRESULT SettingsWindow::handle_message(const HWND window, const UINT message, co
         add_control(window, L"STATIC", L"未配置", 0, 386, 440, 154, 22, control_credential_status);
         add_control(window, L"BUTTON", L"删除凭据", 0, 548, 434, 82, 28, command_delete_credential);
 
-        add_control(window, L"STATIC", L"请求上限：会话", 0, 24, 480, 112, 22, 0);
-        add_control(window, L"EDIT", L"", WS_BORDER | ES_NUMBER, 140, 476, 58, 26,
+        add_control(window, L"STATIC", L"提醒：会话（0 关闭）", 0, 24, 480, 142, 22, 0);
+        add_control(window, L"EDIT", L"", WS_BORDER | ES_NUMBER, 170, 476, 50, 26,
                     control_session_limit);
-        add_control(window, L"STATIC", L"日", 0, 214, 480, 22, 22, 0);
-        add_control(window, L"EDIT", L"", WS_BORDER | ES_NUMBER, 240, 476, 70, 26,
+        add_control(window, L"STATIC", L"每日提醒（0 关闭）", 0, 234, 480, 132, 22, 0);
+        add_control(window, L"EDIT", L"", WS_BORDER | ES_NUMBER, 370, 476, 62, 26,
                     control_daily_limit);
-        add_control(window, L"STATIC", L"月", 0, 326, 480, 22, 22, 0);
-        add_control(window, L"EDIT", L"", WS_BORDER | ES_NUMBER, 352, 476, 76, 26,
+        add_control(window, L"STATIC", L"月度硬上限", 0, 452, 480, 88, 22, 0);
+        add_control(window, L"EDIT", L"", WS_BORDER | ES_NUMBER, 544, 476, 80, 26,
                     control_monthly_limit);
-        add_control(window, L"STATIC", L"停止阈值 %", 0, 448, 480, 88, 22, 0);
-        add_control(window, L"EDIT", L"", WS_BORDER | ES_NUMBER, 540, 476, 70, 26,
-                    control_stop_percent);
         add_control(window, L"STATIC",
                     L"截图/问题会发送到上方显示的目的域并可能产生费用；失败后图片绝不自动重发。"
                     L" Anthropic/Gemini/Mistral 原生协议不受锁定 App Server 支持，当前不启用。",
                     0, 24, 516, 650, 48, 0);
-        add_control(window, L"BUTTON", L"测试配置（Mock，不联网/不计费）", 0, 24, 574, 250, 30,
+        add_control(window, L"BUTTON", L"测试真实连接（最小请求）", 0, 24, 574, 250, 30,
                     command_test_configuration);
 
         add_control(window, L"BUTTON", L"保存", BS_DEFPUSHBUTTON, 24, 646, 92, 30, command_save);
@@ -318,14 +339,43 @@ LRESULT SettingsWindow::handle_message(const HWND window, const UINT message, co
         }
         if (command == command_test_configuration) {
             wowai::storage::AssistantSettings candidate;
-            if (!collect(candidate)) {
-                ::MessageBoxW(window, L"配置校验失败；不会发出网络请求。", L"Mock 连接测试",
+            const auto key = get_ascii(window, control_api_key, 16 * 1024);
+            if (!collect(candidate) || !key) {
+                ::MessageBoxW(window, L"配置或 API Key 格式校验失败；未发出网络请求。",
+                              L"真实连接测试",
                               MB_OK | MB_ICONWARNING);
-            } else {
-                ::MessageBoxW(window,
-                              L"Mock 测试通过：字段、目的域模板、能力与用量规则有效。"
-                              L"本测试没有调用任何真实 API，也不会消耗额度。",
-                              L"Mock 连接测试", MB_OK | MB_ICONINFORMATION);
+            } else if (!connection_test_active_ && connection_test_handler_ &&
+                       ::MessageBoxW(
+                           window,
+                           L"将向当前提供方发送一条固定短文本，不含截图、观察数据或玩家信息；"
+                           L"限制为最小回复且不会自动重试。该请求可能产生极小费用，并计入月度上限。"
+                           L"是否继续？",
+                           L"测试真实连接", MB_YESNO | MB_DEFBUTTON2 | MB_ICONINFORMATION) ==
+                           IDYES) {
+                if (connection_test_thread_.joinable())
+                    connection_test_thread_.join();
+                connection_test_active_ = true;
+                update_cloud_controls();
+                ::SetDlgItemTextW(window, command_test_configuration, L"正在测试…");
+                connection_test_thread_ = std::jthread(
+                    [this, candidate, key = key->empty() ? std::nullopt
+                                                         : std::optional<std::string>{*key},
+                     window](const std::stop_token stop_token) {
+                        auto result = std::make_unique<ConnectionTestResult>();
+                        try {
+                            result->message = connection_test_handler_(candidate, key, stop_token);
+                            result->succeeded = true;
+                        } catch (const std::exception& error) {
+                            result->message = error.what();
+                        } catch (...) {
+                            result->message = "连接测试失败；没有自动重试。";
+                        }
+                        if (!::PostMessageW(window, connection_test_complete_message, 0,
+                                            reinterpret_cast<LPARAM>(result.get()))) {
+                            return;
+                        }
+                        static_cast<void>(result.release());
+                    });
             }
             return 0;
         }
@@ -355,6 +405,17 @@ LRESULT SettingsWindow::handle_message(const HWND window, const UINT message, co
     }
     if (message == WM_CLOSE) {
         ::ShowWindow(window, SW_HIDE);
+        return 0;
+    }
+    if (message == connection_test_complete_message) {
+        std::unique_ptr<ConnectionTestResult> result{
+            reinterpret_cast<ConnectionTestResult*>(lparam)};
+        connection_test_active_ = false;
+        ::SetDlgItemTextW(window, command_test_configuration, L"测试真实连接（最小请求）");
+        update_cloud_controls();
+        const auto detail = wide_from_utf8(result ? result->message : "连接测试失败。");
+        ::MessageBoxW(window, detail.c_str(), L"真实连接测试",
+                      MB_OK | (result && result->succeeded ? MB_ICONINFORMATION : MB_ICONERROR));
         return 0;
     }
     return ::DefWindowProcW(window, message, wparam, lparam);
@@ -396,7 +457,6 @@ void SettingsWindow::populate(const wowai::storage::AssistantSettings& settings)
     set_number(window_, control_session_limit, settings.cloud_session_request_limit);
     set_number(window_, control_daily_limit, settings.cloud_daily_request_limit);
     set_number(window_, control_monthly_limit, settings.cloud_monthly_request_limit);
-    set_number(window_, control_stop_percent, settings.cloud_stop_threshold_percent);
     ::SetDlgItemTextW(window_, control_api_key, L"");
     const std::wstring status =
         credential_suffix_.empty()
@@ -451,10 +511,8 @@ bool SettingsWindow::collect(wowai::storage::AssistantSettings& settings) noexce
     const auto session_limit = get_number(window_, control_session_limit);
     const auto daily_limit = get_number(window_, control_daily_limit);
     const auto monthly_limit = get_number(window_, control_monthly_limit);
-    const auto stop_percent = get_number(window_, control_stop_percent);
     if (!model || !profile || !organization || !resource || !api_version ||
-        region_index >= regions.size() || !session_limit || !daily_limit || !monthly_limit ||
-        !stop_percent)
+        region_index >= regions.size() || !session_limit || !daily_limit || !monthly_limit)
         return false;
     settings.cloud_model = *model;
     settings.cloud_profile = *profile;
@@ -465,7 +523,6 @@ bool SettingsWindow::collect(wowai::storage::AssistantSettings& settings) noexce
     settings.cloud_session_request_limit = *session_limit;
     settings.cloud_daily_request_limit = *daily_limit;
     settings.cloud_monthly_request_limit = *monthly_limit;
-    settings.cloud_stop_threshold_percent = *stop_percent;
     return settings.valid();
 }
 
@@ -476,8 +533,8 @@ void SettingsWindow::update_cloud_controls() noexcept {
     const bool azure = provider == "azure-openai";
     for (const int control : {control_provider, control_model, control_profile, control_api_key,
                               control_session_limit, control_daily_limit, control_monthly_limit,
-                              control_stop_percent, command_test_configuration}) {
-        ::EnableWindow(::GetDlgItem(window_, control), enabled);
+                              command_test_configuration}) {
+        ::EnableWindow(::GetDlgItem(window_, control), enabled && !connection_test_active_);
     }
     ::EnableWindow(::GetDlgItem(window_, control_organization), enabled && provider == "openai");
     ::EnableWindow(::GetDlgItem(window_, control_region), enabled && dashscope);
