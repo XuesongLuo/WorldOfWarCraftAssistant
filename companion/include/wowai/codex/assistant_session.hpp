@@ -11,6 +11,11 @@
 #include <string>
 #include <string_view>
 
+namespace wowai::storage {
+struct AssistantSettings;
+class CredentialStore;
+} // namespace wowai::storage
+
 namespace wowai::codex {
 
 class AssistantFailure final : public std::runtime_error {
@@ -49,24 +54,29 @@ struct ConfirmedImage {
 
 class AssistantSession final {
   public:
-    AssistantSession(const HostLaunchOptions& options, std::string provider, std::string model);
+    AssistantSession(const HostLaunchOptions& options, std::string provider, std::string model,
+                     std::string destination_host = {});
 
     AssistantSession(const AssistantSession&) = delete;
     AssistantSession& operator=(const AssistantSession&) = delete;
 
-    [[nodiscard]] std::string ask(std::string_view question,
-                                  std::chrono::milliseconds timeout,
+    [[nodiscard]] std::string ask(std::string_view question, std::chrono::milliseconds timeout,
                                   std::optional<ConfirmedImage> image = std::nullopt,
                                   nlohmann::json observations = nlohmann::json::array(),
                                   nlohmann::json visual_bridge = nullptr,
                                   bool screen_observation_enabled = false,
-                                  std::stop_token stop_token = {});
+                                  std::stop_token stop_token = {}, std::string request_id = {});
 
     void cancel_active_request() noexcept;
     void recover();
 
     [[nodiscard]] static std::unique_ptr<AssistantSession> from_environment();
+    [[nodiscard]] static std::unique_ptr<AssistantSession>
+    from_secure_settings(const wowai::storage::AssistantSettings& settings,
+                         const wowai::storage::CredentialStore& credentials);
     [[nodiscard]] std::string_view provider() const noexcept { return provider_; }
+    [[nodiscard]] std::string_view model() const noexcept { return model_; }
+    [[nodiscard]] std::string destination_host() const;
 
   private:
     void connect();
@@ -76,19 +86,16 @@ class AssistantSession final {
     std::string conversation_id_;
     std::string provider_;
     std::string model_;
+    std::string destination_host_;
     std::mutex active_mutex_;
     std::optional<std::string> active_request_id_;
 };
 
-[[nodiscard]] nlohmann::json make_assistant_request(std::string_view request_id,
-                                                     std::string_view conversation_id,
-                                                     std::string_view created_at,
-                                                     std::string_view question,
-                                                     std::string_view provider,
-                                                     std::string_view model,
-                                                     std::optional<ConfirmedImage> image = std::nullopt,
-                                                     nlohmann::json observations = nlohmann::json::array(),
-                                                     nlohmann::json visual_bridge = nullptr,
-                                                     bool screen_observation_enabled = false);
+[[nodiscard]] nlohmann::json make_assistant_request(
+    std::string_view request_id, std::string_view conversation_id, std::string_view created_at,
+    std::string_view question, std::string_view provider, std::string_view model,
+    std::optional<ConfirmedImage> image = std::nullopt,
+    nlohmann::json observations = nlohmann::json::array(), nlohmann::json visual_bridge = nullptr,
+    bool screen_observation_enabled = false);
 
 } // namespace wowai::codex

@@ -12,7 +12,7 @@
 namespace wowai::storage {
 namespace {
 
-constexpr std::string_view entropy_text = "WorldOfWarcraftAssistant/v1/provider-credential";
+constexpr std::string_view entropy_prefix = "WorldOfWarcraftAssistant/v2/provider-profile/";
 
 class LocalBytes final {
   public:
@@ -26,9 +26,9 @@ class LocalBytes final {
     BYTE* value_{};
 };
 
-[[nodiscard]] DATA_BLOB entropy_blob() noexcept {
-    return {static_cast<DWORD>(entropy_text.size()),
-            reinterpret_cast<BYTE*>(const_cast<char*>(entropy_text.data()))};
+[[nodiscard]] std::string entropy_text(const std::string_view provider,
+                                       const std::string_view profile) {
+    return std::string{entropy_prefix} + std::string{provider} + "/" + std::string{profile};
 }
 
 } // namespace
@@ -48,14 +48,20 @@ bool CredentialStore::valid_provider(const std::string_view provider) noexcept {
            });
 }
 
-std::filesystem::path CredentialStore::path_for(const std::string_view provider) const {
-    if (!valid_provider(provider)) {
-        throw std::invalid_argument("credential provider identifier is invalid");
-    }
-    return directory_ / (std::string{provider} + ".dpapi");
+bool CredentialStore::valid_profile(const std::string_view profile) noexcept {
+    return valid_provider(profile);
 }
 
-void CredentialStore::write(const std::string_view provider, const std::string_view secret) const {
+std::filesystem::path CredentialStore::path_for(const std::string_view provider,
+                                                const std::string_view profile) const {
+    if (!valid_provider(provider) || !valid_profile(profile)) {
+        throw std::invalid_argument("credential provider/profile identifier is invalid");
+    }
+    return directory_ / (std::string{provider} + "--" + std::string{profile} + ".dpapi");
+}
+
+void CredentialStore::write(const std::string_view provider, const std::string_view profile,
+                            const std::string_view secret) const {
     if (secret.empty() || secret.size() > 16 * 1024) {
         throw std::invalid_argument("credential value is empty or too large");
     }
@@ -63,13 +69,15 @@ void CredentialStore::write(const std::string_view provider, const std::string_v
     DATA_BLOB input{static_cast<DWORD>(secret.size()),
                     reinterpret_cast<BYTE*>(const_cast<char*>(secret.data()))};
     DATA_BLOB output{};
-    auto entropy = entropy_blob();
+    auto entropy_value = entropy_text(provider, profile);
+    DATA_BLOB entropy{static_cast<DWORD>(entropy_value.size()),
+                      reinterpret_cast<BYTE*>(entropy_value.data())};
     if (::CryptProtectData(&input, L"World of Warcraft AI Assistant credential", &entropy, nullptr,
                            nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output) == FALSE) {
         throw std::runtime_error("Windows DPAPI could not protect the credential");
     }
     LocalBytes protected_bytes{output.pbData};
-    const auto target = path_for(provider);
+    const auto target = path_for(provider, profile);
     const auto temporary = target.wstring() + L".tmp";
     {
         std::ofstream stream{temporary, std::ios::binary | std::ios::trunc};
@@ -83,8 +91,9 @@ void CredentialStore::write(const std::string_view provider, const std::string_v
     std::filesystem::rename(temporary, target);
 }
 
-std::optional<std::string> CredentialStore::read(const std::string_view provider) const {
-    const auto path = path_for(provider);
+std::optional<std::string> CredentialStore::read(const std::string_view provider,
+                                                 const std::string_view profile) const {
+    const auto path = path_for(provider, profile);
     std::ifstream stream{path, std::ios::binary};
     if (!stream) {
         return std::nullopt;
@@ -96,7 +105,9 @@ std::optional<std::string> CredentialStore::read(const std::string_view provider
     }
     DATA_BLOB input{static_cast<DWORD>(encrypted.size()), encrypted.data()};
     DATA_BLOB output{};
-    auto entropy = entropy_blob();
+    auto entropy_value = entropy_text(provider, profile);
+    DATA_BLOB entropy{static_cast<DWORD>(entropy_value.size()),
+                      reinterpret_cast<BYTE*>(entropy_value.data())};
     if (::CryptUnprotectData(&input, nullptr, &entropy, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN,
                              &output) == FALSE) {
         throw std::runtime_error("Windows DPAPI could not unprotect the credential");
@@ -110,9 +121,9 @@ std::optional<std::string> CredentialStore::read(const std::string_view provider
     return result;
 }
 
-void CredentialStore::erase(const std::string_view provider) const {
+void CredentialStore::erase(const std::string_view provider, const std::string_view profile) const {
     std::error_code error;
-    std::filesystem::remove(path_for(provider), error);
+    std::filesystem::remove(path_for(provider, profile), error);
 }
 
 void CredentialStore::erase_all() const {

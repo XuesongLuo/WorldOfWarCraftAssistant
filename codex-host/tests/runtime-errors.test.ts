@@ -4,6 +4,7 @@ import { AppServerRequestError, AppServerTurnError } from '../src/app-server/cli
 import {
   classifyCloudModelError,
   redactSensitiveText,
+  retryAfterMilliseconds,
   safeDiagnosticMessage,
 } from '../src/runtime/errors.js';
 
@@ -61,5 +62,12 @@ describe('cloud error classification and redaction', () => {
     expect(
       classifyCloudModelError(new Error('provider returned an unspecified failure')),
     ).toBeUndefined();
+  });
+
+  it('honors bounded Retry-After signals without scheduling an automatic retry', () => {
+    expect(retryAfterMilliseconds(new Error('429 Retry-After: 12 seconds'))).toBe(12_000);
+    expect(retryAfterMilliseconds(new Error('try again in 250 ms'))).toBe(250);
+    expect(retryAfterMilliseconds(new Error('429 rate limited'))).toBe(30_000);
+    expect(retryAfterMilliseconds(new Error('Retry-After: 999999 seconds'))).toBe(3_600_000);
   });
 });

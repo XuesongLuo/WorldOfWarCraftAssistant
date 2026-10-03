@@ -65,6 +65,12 @@ std::string utc_now_text() {
     return text.data();
 }
 
+bool development_environment_fallback_enabled() noexcept {
+    wchar_t value[2]{};
+    return ::GetEnvironmentVariableW(L"WOWAI_DEVELOPMENT_ENV_FALLBACK", value, 2) == 1 &&
+           value[0] == L'1';
+}
+
 std::string utc_unix_text(const std::uint32_t timestamp) {
     const std::time_t value = static_cast<std::time_t>(timestamp);
     std::tm utc{};
@@ -86,13 +92,14 @@ struct ActionableError {
 
 ActionableError actionable_error(const std::string_view code, const bool recovered) {
     if (code == "AI_CREDENTIALS_MISSING") {
-        return {"缺少当前云端提供方的 API 凭据。", "在 .env.local 配置对应 API key 后重启"};
+        return {"缺少当前云端提供方/配置档的 API 凭据。",
+                "在设置中保存 API key；.env.local 仅供开发回退"};
     }
     if (code == "AI_AUTH_FAILED") {
         return {"云端提供方拒绝了当前凭据。", "检查 API key 是否有效且属于当前提供方"};
     }
     if (code == "AI_MODEL_UNAVAILABLE") {
-        return {"配置的精确模型当前不可用。", "检查 WOWAI_CLOUD_MODEL 后重试"};
+        return {"配置的精确模型当前不可用。", "在设置中检查精确模型/部署名后重试"};
     }
     if (code == "AI_RATE_LIMITED") {
         return {"云端提供方正在限流，本次请求未自动重发。", "稍候点击重试"};
@@ -105,6 +112,13 @@ ActionableError actionable_error(const std::string_view code, const bool recover
     }
     if (code == "AI_INVALID_RESPONSE") {
         return {"模型回复结构无效，未向聊天区显示不可信的部分内容。", "点击重试或更换模型"};
+    }
+    if (code == "AI_USAGE_LIMIT_REACHED") {
+        return {"已达到会话、日或月用量停止阈值，本次请求未发送。",
+                "在设置中审查费用风险后调整上限"};
+    }
+    if (code == "AI_DUPLICATE_REQUEST_BLOCKED") {
+        return {"已阻止重复请求以避免重复计费。", "无需重试；如需新问题请重新提交"};
     }
     if (code == "CODEX_START_FAILED" || code == "CODEX_PROTOCOL_ERROR") {
         return {recovered ? "Host/App Server 异常已安全恢复，本次请求未自动重发。"
@@ -228,15 +242,7 @@ ApplicationShell::ApplicationShell(const HINSTANCE instance)
     lifecycle_.transition_to(LifecycleState::waiting_for_wow);
     selection_store_ = std::make_unique<wowai::capture::SelectionStore>(
         wowai::capture::SelectionStore::default_path());
-    try {
-        assistant_session_ = wowai::codex::AssistantSession::from_environment();
-    } catch (const wowai::codex::AssistantFailure& error) {
-        assistant_configuration_code_ = std::string{error.code()};
-        assistant_configuration_error_ = error.what();
-    } catch (const std::exception&) {
-        assistant_configuration_code_ = "CODEX_START_FAILED";
-        assistant_configuration_error_ = "Host 启动失败；请检查锁定运行时与路径配置。";
-    }
+    reload_assistant_session();
     overlay_window_ = std::make_unique<wowai::overlay::OverlayWindow>(
         instance_, [this](std::wstring status) { set_status(std::move(status)); },
         [this](wowai::overlay::WebMessage message) { handle_overlay_message(std::move(message)); });
@@ -244,8 +250,12 @@ ApplicationShell::ApplicationShell(const HINSTANCE instance)
                                       settings_.overlay_font_size_px);
     settings_window_ = std::make_unique<SettingsWindow>(
         instance_, window_.get(),
-        [this](const wowai::storage::AssistantSettings& value) { return apply_settings(value); },
-        [this] { return delete_local_data(); });
+        [this](const wowai::storage::AssistantSettings& value,
+               const std::optional<std::string>& key) { return apply_settings(value, key); },
+        [this] { return delete_local_data(); },
+        [this](const std::string_view provider, const std::string_view profile) {
+            return delete_cloud_credential(provider, profile);
+        });
     const bool hotkey_conflict =
         global_hotkey_->apply(settings_) == wowai::platform::HotkeyApplyResult::conflict;
     if (hotkey_conflict) {
@@ -449,12 +459,29 @@ void ApplicationShell::activate() noexcept {
 
 void ApplicationShell::show_settings() noexcept {
     if (settings_window_) {
-        settings_window_->show(settings_);
+        std::string suffix;
+        try {
+            auto secret =
+                credential_store_->read(settings_.cloud_provider, settings_.cloud_profile);
+            if (secret) {
+                const auto start = secret->size() > 4 ? secret->size() - 4 : 0;
+                suffix = secret->substr(start);
+                ::SecureZeroMemory(secret->data(), secret->size());
+            }
+        } catch (...) {
+        }
+        settings_window_->show(settings_, std::move(suffix));
     }
 }
 
-bool ApplicationShell::apply_settings(const wowai::storage::AssistantSettings& settings) noexcept {
+bool ApplicationShell::apply_settings(const wowai::storage::AssistantSettings& settings,
+                                      const std::optional<std::string>& api_key) noexcept {
     if (!settings.valid() || !database_ || !global_hotkey_) {
+        return false;
+    }
+    if (request_active_) {
+        ::MessageBoxW(window_.get(), L"请先等待当前请求完成或取消请求，再切换云端配置。",
+                      L"请求进行中", MB_OK | MB_ICONWARNING);
         return false;
     }
     const auto result = global_hotkey_->apply(settings);
@@ -469,8 +496,12 @@ bool ApplicationShell::apply_settings(const wowai::storage::AssistantSettings& s
         return false;
     }
     try {
+        if (api_key)
+            credential_store_->write(settings.cloud_provider, settings.cloud_profile, *api_key);
         database_->save_settings(settings);
         settings_ = settings;
+        cloud_session_requests_ = 0;
+        reload_assistant_session();
         if (overlay_window_) {
             overlay_window_->apply_appearance(settings_.overlay_opacity_percent,
                                               settings_.overlay_font_size_px);
@@ -488,6 +519,59 @@ bool ApplicationShell::apply_settings(const wowai::storage::AssistantSettings& s
     }
 }
 
+bool ApplicationShell::delete_cloud_credential(const std::string_view provider,
+                                               const std::string_view profile) noexcept {
+    try {
+        if (request_active_)
+            return false;
+        credential_store_->erase(provider, profile);
+        if (settings_.cloud_provider == provider && settings_.cloud_profile == profile) {
+            assistant_session_.reset();
+            assistant_configuration_code_ = "AI_CREDENTIALS_MISSING";
+            assistant_configuration_error_ = "当前提供方/配置档未保存 API key。";
+        }
+        if (safe_log_)
+            safe_log_->info("credential.deleted", std::string{provider});
+        return true;
+    } catch (...) {
+        if (safe_log_)
+            safe_log_->error("credential.delete_failed");
+        return false;
+    }
+}
+
+void ApplicationShell::reload_assistant_session() noexcept {
+    assistant_session_.reset();
+    assistant_configuration_code_.clear();
+    assistant_configuration_error_.clear();
+    try {
+        assistant_session_ =
+            wowai::codex::AssistantSession::from_secure_settings(settings_, *credential_store_);
+    } catch (const wowai::codex::AssistantFailure& error) {
+        if (settings_.cloud_enabled && development_environment_fallback_enabled()) {
+            try {
+                assistant_session_ = wowai::codex::AssistantSession::from_environment();
+                if (assistant_session_)
+                    return;
+            } catch (...) {
+            }
+        }
+        assistant_configuration_code_ = std::string{error.code()};
+        assistant_configuration_error_ = error.what();
+    } catch (...) {
+        if (settings_.cloud_enabled && development_environment_fallback_enabled()) {
+            try {
+                assistant_session_ = wowai::codex::AssistantSession::from_environment();
+                if (assistant_session_)
+                    return;
+            } catch (...) {
+            }
+        }
+        assistant_configuration_code_ = "CODEX_START_FAILED";
+        assistant_configuration_error_ = "Host 启动失败；请检查锁定运行时与路径配置。";
+    }
+}
+
 bool ApplicationShell::delete_local_data() noexcept {
     try {
         cancel_request();
@@ -498,6 +582,8 @@ bool ApplicationShell::delete_local_data() noexcept {
         pause_observation();
         database_->reset_all();
         credential_store_->erase_all();
+        assistant_session_.reset();
+        cloud_session_requests_ = 0;
         safe_log_.reset();
         if (local_data_cleaner_) {
             static_cast<void>(local_data_cleaner_->delete_non_database_data());
@@ -1012,17 +1098,50 @@ void ApplicationShell::submit_question(std::string question) noexcept {
     // Continuous screen observations remain local. Only a separately confirmed screenshot may
     // cross the cloud boundary; plugin-public structured context is independently opt-in.
     const bool observation_enabled = false;
+    const std::string request_id = new_uuid_text();
+    try {
+        const auto authorization = database_->authorize_cloud_request(
+            settings_, cloud_session_requests_, request_id, assistant_session_->destination_host(),
+            confirmed_image.has_value());
+        if (authorization != wowai::storage::CloudRequestAuthorization::allowed) {
+            request_active_ = false;
+            const bool duplicate =
+                authorization == wowai::storage::CloudRequestAuthorization::duplicate;
+            overlay_window_->post_request_state(
+                "error",
+                duplicate ? "已阻止重复请求，避免重复计费。"
+                          : "已达到配置的云端用量停止阈值；本次请求未发送。",
+                duplicate ? "AI_DUPLICATE_REQUEST_BLOCKED" : "AI_USAGE_LIMIT_REACHED", false,
+                "在设置中检查会话/日/月上限；提高上限前请确认费用");
+            return;
+        }
+        ++cloud_session_requests_;
+        if (safe_log_) {
+            safe_log_->info("cloud.request",
+                            "provider=" + settings_.cloud_provider +
+                                " model=" + settings_.cloud_model +
+                                " destination=" + assistant_session_->destination_host() +
+                                " image=" + (confirmed_image ? "1" : "0"));
+        }
+    } catch (...) {
+        request_active_ = false;
+        overlay_window_->post_request_state("error", "用量保护或审计不可用；请求已安全阻断。",
+                                            "AI_USAGE_LIMIT_REACHED", false,
+                                            "检查本地数据目录后重试");
+        return;
+    }
     if (confirmed_image) {
         discard_screenshot();
     }
     overlay_window_->post_request_state("submitting", "正在请求已启用的云端模型…");
     request_thread_ = std::jthread([this, question = std::move(question),
                                     image = std::move(confirmed_image), observations, visual_bridge,
-                                    observation_enabled](const std::stop_token stop_token) mutable {
+                                    observation_enabled,
+                                    request_id](const std::stop_token stop_token) mutable {
         try {
             const std::string answer = assistant_session_->ask(
                 question, std::chrono::milliseconds{30'000}, std::move(image), observations,
-                visual_bridge, observation_enabled, stop_token);
+                visual_bridge, observation_enabled, stop_token, request_id);
             if (database_) {
                 try {
                     database_->save_exchange(question, answer);

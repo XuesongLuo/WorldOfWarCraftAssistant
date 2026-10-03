@@ -7,8 +7,8 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <string>
 #include <stop_token>
+#include <string>
 
 #include <windows.h>
 
@@ -16,8 +16,10 @@ namespace {
 using namespace std::chrono_literals;
 
 wowai::codex::HostLaunchOptions fixture(std::wstring mode) {
-    return {std::filesystem::path{WOWAI_HOST_PROCESS_FIXTURE}, {std::move(mode)},
-            std::filesystem::path{WOWAI_REPOSITORY_ROOT}, 100ms};
+    return {std::filesystem::path{WOWAI_HOST_PROCESS_FIXTURE},
+            {std::move(mode)},
+            std::filesystem::path{WOWAI_REPOSITORY_ROOT},
+            100ms};
 }
 
 nlohmann::json fixtures() {
@@ -29,7 +31,8 @@ nlohmann::json fixtures() {
 nlohmann::json request_payload() {
     const auto all_fixtures = fixtures();
     for (const auto& item : all_fixtures.at("assistantRequests")) {
-        if (item.at("accepted").get<bool>()) return item.at("value");
+        if (item.at("accepted").get<bool>())
+            return item.at("value");
     }
     throw std::runtime_error("no valid request fixture");
 }
@@ -42,8 +45,9 @@ nlohmann::json hello() {
             {"sequence", 0},
             {"sentAt", "2026-10-01T12:00:00Z"},
             {"timeoutMs", nullptr},
-            {"payload", {{"supportedVersions", {wowai::codex::protocol_version}},
-                         {"maxMessageBytes", wowai::codex::max_message_bytes}}}};
+            {"payload",
+             {{"supportedVersions", {wowai::codex::protocol_version}},
+              {"maxMessageBytes", wowai::codex::max_message_bytes}}}};
 }
 
 nlohmann::json request() {
@@ -111,6 +115,19 @@ TEST_CASE("closing the Host job terminates descendants", "[codex][process]") {
         REQUIRE(descendant);
     }
     REQUIRE(::WaitForSingleObject(descendant.get(), 2'000) == WAIT_OBJECT_0);
+}
+
+TEST_CASE("Host receives only the explicitly injected active provider credential",
+          "[codex][process][security]") {
+    REQUIRE(::SetEnvironmentVariableW(L"OPENAI_API_KEY", L"parent-secret") != FALSE);
+    auto options = fixture(L"--environment");
+    options.environment_remove = {L"OPENAI_API_KEY", L"WOWAI_ACTIVE_API_KEY"};
+    options.environment_overrides = {{L"WOWAI_ACTIVE_API_KEY", L"injected-secret"}};
+    wowai::codex::HostProcess process(options);
+    const auto line = process.read_line(1s);
+    ::SetEnvironmentVariableW(L"OPENAI_API_KEY", nullptr);
+    REQUIRE(line.status == wowai::codex::HostReadStatus::line);
+    CHECK(line.line == "removed|injected-secret");
 }
 
 TEST_CASE("C++ client negotiates with the packaged TypeScript Host", "[codex][integration]") {

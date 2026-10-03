@@ -6,6 +6,7 @@ import { prepareApplicationDirectories } from '../host/application-directories.j
 import {
   cloudAppServerProviderArguments,
   cloudModelConfigurationFromEnvironment,
+  sanitizedAppServerEnvironment,
 } from '../cloud-model/provider.js';
 import {
   appServerProviderArguments,
@@ -35,6 +36,7 @@ export async function startAppServerRuntime(
   const cloudModel = cloudModelConfigurationFromEnvironment(process.env);
   const localModel =
     cloudModel === undefined ? localModelConfigurationFromEnvironment(process.env) : undefined;
+  const childEnvironment = sanitizedAppServerEnvironment(process.env, cloudModel);
   const child = spawn(
     options.binaryPath,
     [
@@ -50,13 +52,27 @@ export async function startAppServerRuntime(
     ],
     {
       cwd: directories.workspace,
-      env: { ...process.env, CODEX_HOME: directories.state },
+      env: { ...childEnvironment, CODEX_HOME: directories.state },
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     },
   );
-  forwardDiagnostics(child, options.diagnostics);
+  // The Node Host no longer needs the plaintext after the only network-capable child is spawned.
+  for (const name of [
+    'WOWAI_ACTIVE_API_KEY',
+    'OPENAI_API_KEY',
+    'DEEPSEEK_API_KEY',
+    'XAI_API_KEY',
+    'OPENROUTER_API_KEY',
+    'DASHSCOPE_API_KEY',
+    'AZURE_OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
+    'GEMINI_API_KEY',
+    'MISTRAL_API_KEY',
+  ])
+    Reflect.deleteProperty(process.env, name);
+  forwardDiagnostics(child, options.diagnostics, [childEnvironment.WOWAI_ACTIVE_API_KEY]);
   const client = new AppServerClient({
     input: child.stdout,
     output: child.stdin,
@@ -133,7 +149,11 @@ function isRunning(child: ChildProcessWithoutNullStreams): boolean {
   return child.exitCode === null && !child.killed;
 }
 
-function forwardDiagnostics(child: ChildProcessWithoutNullStreams, destination: Writable): void {
+function forwardDiagnostics(
+  child: ChildProcessWithoutNullStreams,
+  destination: Writable,
+  credentials: ReadonlyArray<string | undefined> = [],
+): void {
   const maximumBytes = 64 * 1_024;
   let buffered = Buffer.alloc(0);
   child.stderr.on('data', (chunk: Buffer) => {
@@ -142,12 +162,7 @@ function forwardDiagnostics(child: ChildProcessWithoutNullStreams, destination: 
   });
   child.stderr.once('end', () => {
     if (buffered.byteLength === 0) return;
-    destination.write(
-      redactSensitiveText(buffered.toString('utf8'), [
-        process.env.OPENAI_API_KEY,
-        process.env.DEEPSEEK_API_KEY,
-      ]),
-    );
+    destination.write(redactSensitiveText(buffered.toString('utf8'), credentials));
     buffered = Buffer.alloc(0);
   });
   child.once('error', (error) => {

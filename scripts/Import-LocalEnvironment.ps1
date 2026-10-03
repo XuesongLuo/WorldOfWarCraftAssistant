@@ -6,8 +6,18 @@ $allowedNames = @(
     'WOWAI_MODEL_PROVIDER',
     'WOWAI_CLOUD_MODEL',
     'WOWAI_CLOUD_UPLOAD_CONSENT',
+    'WOWAI_DEVELOPMENT_ENV_FALLBACK',
+    'WOWAI_CLOUD_ORGANIZATION',
+    'WOWAI_DASHSCOPE_REGION',
+    'WOWAI_DASHSCOPE_WORKSPACE',
+    'WOWAI_AZURE_RESOURCE',
+    'WOWAI_AZURE_API_VERSION',
     'DEEPSEEK_API_KEY',
-    'OPENAI_API_KEY'
+    'OPENAI_API_KEY',
+    'XAI_API_KEY',
+    'OPENROUTER_API_KEY',
+    'DASHSCOPE_API_KEY',
+    'AZURE_OPENAI_API_KEY'
 )
 
 if (-not (Test-Path -LiteralPath $environmentFile -PathType Leaf)) {
@@ -40,6 +50,8 @@ if ($env:WOWAI_MODEL_PROVIDER -eq 'deepseek' -and
     [Environment]::SetEnvironmentVariable('DEEPSEEK_API_KEY', $null, 'Process')
     throw '请先在 .env.local 中填写真实 DEEPSEEK_API_KEY。'
 }
+
+[Environment]::SetEnvironmentVariable('WOWAI_DEVELOPMENT_ENV_FALLBACK', '1', 'Process')
 
 Write-Output ("已将本机云端配置载入当前 PowerShell 进程：{0}。密钥值未显示。" -f
     (($loadedNames | Sort-Object -Unique) -join ', '))

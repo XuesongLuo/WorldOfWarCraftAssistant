@@ -11,9 +11,11 @@ int wmain(int argc, wchar_t** argv) {
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stdin), _O_BINARY);
     const std::wstring mode = argc > 1 ? argv[1] : L"";
-    if (mode == L"--crash") return 23;
+    if (mode == L"--crash")
+        return 23;
     if (mode == L"--linger") {
-        while (true) ::Sleep(1'000);
+        while (true)
+            ::Sleep(1'000);
     }
     if (mode == L"--spawn-descendant") {
         std::wstring command = L"\"" + std::wstring(argv[0]) + L"\" --linger";
@@ -26,15 +28,28 @@ int wmain(int argc, wchar_t** argv) {
         ::CloseHandle(process.hThread);
         std::cout << process.dwProcessId << '\n' << std::flush;
         ::CloseHandle(process.hProcess);
-        while (true) ::Sleep(1'000);
+        while (true)
+            ::Sleep(1'000);
+    }
+    if (mode == L"--environment") {
+        char removed[64]{};
+        char active[64]{};
+        const DWORD removed_size = ::GetEnvironmentVariableA("OPENAI_API_KEY", removed, 64);
+        const DWORD active_size = ::GetEnvironmentVariableA("WOWAI_ACTIVE_API_KEY", active, 64);
+        std::cout << (removed_size == 0 ? "removed" : "leaked") << "|"
+                  << (active_size == 0 ? "missing" : active) << '\n'
+                  << std::flush;
+        return 0;
     }
 
     std::string line;
-    if (!std::getline(std::cin, line)) return 5;
+    if (!std::getline(std::cin, line))
+        return 5;
     if (mode == L"--handshake") {
-        std::cout << R"({"protocolVersion":"2.0","messageId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","kind":"ready","requestId":null,"sequence":1,"sentAt":"2026-10-03T00:00:00Z","timeoutMs":null,"payload":{"selectedVersion":"2.0","maxMessageBytes":1048576}})"
-                  << '\n'
-                  << std::flush;
+        std::cout
+            << R"({"protocolVersion":"2.0","messageId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","kind":"ready","requestId":null,"sequence":1,"sentAt":"2026-10-03T00:00:00Z","timeoutMs":null,"payload":{"selectedVersion":"2.0","maxMessageBytes":1048576}})"
+            << '\n'
+            << std::flush;
         while (std::getline(std::cin, line)) {
         }
         return 0;

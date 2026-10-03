@@ -16,8 +16,20 @@ const utcTimestampSchema = z
   .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u)
   .refine((value) => !Number.isNaN(Date.parse(value)), 'expected ISO-8601 UTC timestamp');
 const modeSchema = z.enum(['achievement', 'mount', 'pet', 'gear', 'general', 'coach']);
-const providerSchema = z.enum(['local-ollama', 'local-lmstudio', 'openai', 'deepseek', 'mock']);
-const cloudProviderSchema = z.enum(['openai', 'deepseek']);
+const cloudProviderSchema = z.enum([
+  'openai',
+  'deepseek',
+  'xai',
+  'openrouter',
+  'dashscope',
+  'azure-openai',
+]);
+const providerSchema = z.enum([
+  'local-ollama',
+  'local-lmstudio',
+  ...cloudProviderSchema.options,
+  'mock',
+]);
 const nullableBoundedString = (maximum: number) => z.string().max(maximum).nullable();
 const bridgeFieldSchema = z.enum([
   'class',
@@ -58,6 +70,8 @@ export const assistantErrorCodeSchema = z.enum([
   'AI_RATE_LIMITED',
   'AI_TIMEOUT',
   'AI_INVALID_RESPONSE',
+  'AI_USAGE_LIMIT_REACHED',
+  'AI_DUPLICATE_REQUEST_BLOCKED',
   'KNOWLEDGE_STALE',
   'POLICY_BLOCKED',
   'BRIDGE_FRAME_INVALID',

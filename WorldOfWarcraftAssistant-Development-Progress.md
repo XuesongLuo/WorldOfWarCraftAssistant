@@ -1,9 +1,9 @@
 # World of Warcraft AI Assistant 开发进度与 Agent 执行手册
 
-> 文档版本：v0.23  
+> 文档版本：v0.25  
 > 当前状态：开发中  
 > 当前里程碑：M0 技术可行性 PoC  
-> 当前步骤：STEP-012 截图、场景感知与视觉数据桥闭环；STEP-007B 可选锚点人工验证并行  
+> 当前步骤：STEP-021 已完成；等待进入 STEP-014，STEP-012/007B 人工验证并行  
 > 更新日期：2026-10-03  
 > 产品需求：[WorldOfWarcraftAssistant-PRD.md](./WorldOfWarcraftAssistant-PRD.md)  
 > 技术基线：[WorldOfWarcraftAssistant-Technical-Design.md](./WorldOfWarcraftAssistant-Technical-Design.md)  
@@ -90,22 +90,22 @@ Agent 每次开始工作时必须按以下顺序执行：
 | DEP. 依赖与供应链 | 8/10 | 4/10 | Codex 0.159.2 npm 来源、二进制和 App Server Schema 已锁定验证 |
 | A. 技术基线与仓库工程化 | 14/14 | 13/14 | TypeScript Host、应用独立目录和 Codex 运行时锁已验证 |
 | B. WoW 插件端 | 8/13 | 5/13 | STEP-012 可见视觉数据桥已实现；正式服字段/secret-value 验收待执行，STEP-018 完成上下文卡片重构 |
-| C. Windows C++ 伴侣程序 | 11/13 | 10/13 | 取消/超时、Host/App Server 安全恢复、分类错误和覆盖层状态已自动验证；快捷键与设置页未开始 |
+| C. Windows C++ 伴侣程序 | 11/13 | 10/13 | 快捷键、统一云端设置、取消/超时和 Host/App Server 安全恢复已自动验证；真实 WoW 人工门禁待执行 |
 | D. 游戏画面捕获、场景感知与视觉桥解码 | 18/18 | 0/18 | 实现和自动回归完成；真实 WoW、多 DPI、云端视觉与隐私人工验收待执行 |
-| E. Codex 运行时与 AI 编排 | 17/26 | 15/26 | DeepSeek/OpenAI 注册表、逐图同意、结构化回复及真实 DeepSeek 文字/图片链路已验证；完整人工门禁待执行 |
+| E. Codex 运行时与 AI 编排 | 18/26 | 16/26 | 六种受控 Responses 配置、DPAPI 注入、幂等/用量/限流保护已验证；新增 provider 未做真实付费调用 |
 | F. 游戏知识与资料层 | 0/9 | 0/9 | 未开始 |
 | G. 覆盖层视觉融合与交互联动 | 10/10 | 7/10 | 无插件透明覆盖层及窗口跟随已通过；可选插件锚点精度仍待 STEP-007B |
-| H. 本地数据、设置与安全 | 0/8 | 0/8 | 未开始 |
+| H. 本地数据、设置与安全 | 7/8 | 7/8 | SQLite v3、provider/profile DPAPI、隐私清理和统一设置已验证；诊断包待实现 |
 | I. 测试、合规与质量保障 | 3/14 | 3/14 | JSON 契约、确定性协议模拟器和截图/DPI 合成样本矩阵已完成 |
 | J. 打包、更新与发布 | 0/11 | 0/11 | 未开始 |
 
 ### 3.3 当前执行指针
 
-- 当前步骤：`STEP-012`（核心路径）；`STEP-007B` 可选锚点人工验证并行
-- 下一可执行步骤：`STEP-012`
-- 当前负责人：Windows 图形技术负责人 / WoW 插件负责人
+- 当前步骤：`STEP-021` 已完成；`STEP-012` 与 `STEP-007B` 人工验证并行待处理
+- 下一可执行步骤：`STEP-014`（本次按要求未开始知识库）
+- 当前负责人：Windows/Codex 集成负责人
 - 开始时间：2026-09-28
-- 最近验证：2026-10-03，真实 DeepSeek 结构化文字与 inline PNG 请求通过，锁定 Codex 0.159.2 的完整 Host/App Server 图片链路通过；协议回归 9 文件/60 个 Vitest 与 TypeScript strict 通过
+- 最近验证：2026-10-03，STEP-021 Mock/本地验证：10 文件/76 个 Vitest、83 个 CTest、TypeScript strict 和 Debug `verify` 全仓门禁通过；没有调用新增 provider 的真实 API
 - 当前阻断：代码路径和 DeepSeek 凭据无阻断；STEP-012 仍需真实 WoW、显示矩阵、隐私/清理/失败矩阵、网络目的地和插件桥人工验收；BLOCK-004 仅限制可选插件锚点增强
 
 ## 4. 标准验证命令
@@ -488,11 +488,11 @@ STEP-020。C-05 已使用 Windows `RegisterHotKey` 实现默认 Ctrl+Shift+Space
 实现说明：本地 SQLite 使用版本化事务迁移、`secure_delete`、WAL 截断和删除后 `VACUUM`；
 设置值经过范围校验，损坏数据库归档后以安全默认值重建，未来版本拒绝降级。会话保存默认关闭，
 关闭时不写入且清除既有内容，开启后保留最近 100 轮。凭据使用当前 Windows 用户范围 DPAPI
-密文文件，与 SQLite/日志分离；开发期 `.env.local` 到保险箱的 Host 接线仍按计划留 STEP-021。
+密文文件，与 SQLite/日志分离；开发期 `.env.local` 到保险箱的 Host 接线已在 STEP-021 完成。
 C++ 截图保持内存态，启动时清理专属临时目录残留；诊断日志按 1 MiB×3 轮转并在落盘前脱敏。
 
 - [x] 实现完成
-- [x] 验证通过：首装、v1→v2 升级、未来版本拒绝、配置损坏、异常退出清理、DPAPI/日志/SQLite 磁盘扫描测试通过
+- [x] 验证通过：首装、v1→v3 升级、未来版本拒绝、配置损坏、异常退出清理、DPAPI/日志/SQLite 磁盘扫描测试通过
 
 ### STEP-021：云端凭据产品化和用量保护
 
@@ -502,8 +502,17 @@ C++ 截图保持内存态，启动时清理专属临时目录残留；诊断日�
 
 执行内容：把 M0 的开发期环境变量凭据迁移到 Windows Credential Manager/DPAPI；实现账号/项目选择、费用与上传提示、用量限额、限流退避、请求幂等和防重复计费，以及关闭云端后的网络阻断。本地模型适配器不属于普通玩家范围。
 
-- [ ] 实现完成
-- [ ] 验证通过：关闭云端时无数据外发，重试不重复上传图片或重复计费
+实现说明：设置页提供云端总开关、Provider、连接/目的域提示、精确模型/部署、profile、条件化
+organization/region/workspace/resource/api-version、密码框凭据替换/删除和会话/日/月上限。凭据按
+provider/profile 使用 DPAPI；SQLite v3 仅保存非秘密配置与请求审计元数据。C++ 只向本应用 Host
+注入当前一把 key，Host 再最小化传给 App Server；父环境其他 provider key 被剔除。OpenAI、
+DeepSeek、xAI、OpenRouter、DashScope 和 Azure OpenAI 走受控 Responses 策略；Anthropic、
+Gemini、Mistral 原生协议因锁定 0.159.2 只支持 Responses 而明确暂不启用。连接测试固定为 Mock。
+请求在外发前执行 request ID 幂等和会话/UTC 日/月停止阈值；provider/App Server 自动重试为零，
+限流遵循有界 Retry-After 冷却，图片失败后不会自动重发。详见 ADR-019 与 STEP-021 验证记录。
+
+- [x] 实现完成
+- [x] 验证通过：云端关闭不创建 Host/App Server；Mock 验证重复 ID、限额、Retry-After 和图片零自动重发，不调用真实 API
 
 ### STEP-022：M1 MVP 验收
 
@@ -661,6 +670,18 @@ Agent/会话：
 下一步建议：
 技术文档复选框同步：是/否（原因）
 ```
+
+日期：2026-10-03 13:30  
+Agent/会话：Codex  
+当前步骤：STEP-021  
+本次完成：统一云端设置入口；六种受控 Responses 连接；三种原生非 Responses provider 的明确受限结论；provider/profile DPAPI；Host/App Server 最小环境注入；SQLite v3 元数据审计；会话/日/月用量阈值；幂等、Retry-After 冷却和图片零自动重发  
+修改文件：云端 provider 注册表、Host/App Server 环境、C++ 设置/凭据/数据库/会话、v2 契约、ADR-019、README/环境模板、技术设计和 STEP-021 证据  
+执行的验证：锁定 0.159.2 strict-config 协议探测；TypeScript typecheck；10 文件/76 个 Vitest；Debug MSVC 构建；83 个 CTest（含 DPAPI/SQLite/子进程环境/WebView2）；ESLint、Prettier、`git diff --check` 与 Debug `verify` 全仓门禁通过  
+验证结果：自动验证不调用真实 API、不消耗额度；新增 provider 只确认官方协议证据与 Mock/配置接线，未冒充真实账号通过  
+未完成事项：Anthropic/Gemini/Mistral 原生适配器；新增 provider 真实连接人工验收；STEP-012/007B 真实 WoW 门禁  
+风险或阻断：Codex App Server 0.159.2 只接受 Responses；兼容 provider 的流式细节仍需各自真实账号验收，失败时应禁用而非降级到 chat  
+下一步建议：进入 STEP-014；真实 provider 测试只能由用户在设置窗口再次明确授权  
+技术文档复选框同步：是（E-12、E-21、H-01/H-03、STEP-021、ADR-011/019）
 
 日期：2026-10-03 06:00  
 Agent/会话：Codex  
@@ -994,6 +1015,7 @@ docs/
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
+| v0.25 | 2026-10-03 | 完成 STEP-021：统一云端设置、六种受控 Responses 配置、provider/profile DPAPI、最小进程注入、SQLite v3 审计、用量/幂等/Retry-After 保护；三种原生非 Responses 协议明确暂不启用 |
 | v0.24 | 2026-10-03 | 收尾 STEP-019 全局快捷键与设置页；完成 STEP-020 SQLite v2、DPAPI、会话隐私、截图清理、轮转脱敏日志和本地数据删除 |
 | v0.23 | 2026-10-03 | 完成 STEP-019 可与真实 WoW 解耦部分：请求取消/超时、Host/App Server 安全恢复、云端错误分类、覆盖层请求状态与自动脱敏回归；快捷键和设置页仍未完成 |
 | v0.22 | 2026-10-03 | 使用用户配置的密钥通过真实 DeepSeek 文字、图片及完整 Host/App Server 链路；修复锁定协议的信息通知兼容和同轮 commentary/final answer 分离，保留真实 WoW 人工门禁 |

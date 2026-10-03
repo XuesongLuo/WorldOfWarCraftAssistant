@@ -1,6 +1,6 @@
 # World of Warcraft AI Assistant 技术设计与开发跟踪文档
 
-> 文档版本：v0.21  
+> 文档版本：v0.22  
 > 文档状态：技术方案已按“覆盖层主入口、云端模型主路径、插件可选”方向修订  
 > 更新日期：2026-10-03  
 > 上游需求：[WorldOfWarcraftAssistant-PRD.md](./WorldOfWarcraftAssistant-PRD.md)  
@@ -46,12 +46,12 @@
 |---|---:|---:|---|
 | A. 技术基线与仓库工程化 | 100% | 92.9% | STEP-009 Host、Codex 锁和应用独立目录已验证；发布包许可证仍待验证 |
 | B. WoW 插件端 | 61.5% | 38.5% | STEP-012 可见数据桥实现完成；正式服字段与 secret-value 验收待执行，STEP-018 再重构上下文卡片 |
-| C. Windows 伴侣程序 | 69.2% | 61.5% | STEP-009 C++ Host 所有权与 JSONL/stdio 客户端已验证 |
+| C. Windows 伴侣程序 | 84.6% | 76.9% | 设置、错误恢复和云端统一入口已实现；真实 WoW 人工门禁仍待执行 |
 | D. 游戏画面捕获与上下文处理 | 100% | 0% | STEP-012 实现与自动回归完成；真实 WoW、多 DPI、云端视觉及隐私人工验收待执行 |
-| E. Codex 运行时与 AI 编排 | 65.4% | 57.7% | DeepSeek/OpenAI 受控注册、逐图同意和结构化回复已验证；真实 DeepSeek 文字/图片/Host 正向链路通过，完整人工门禁待执行 |
+| E. Codex 运行时与 AI 编排 | 69.2% | 61.5% | 六种受控 Responses 连接、DPAPI 注入、幂等/用量/限流保护已自动验证；新 provider 未做真实付费验收 |
 | F. 游戏知识与资料层 | 0% | 0% | 未开始 |
 | G. 覆盖层视觉融合与交互联动 | 80% | 0% | 无插件透明覆盖层已实现；焦点、DPI、多屏和自动隐藏等待人工验证 |
-| H. 本地数据、设置与安全 | 0% | 0% | 未开始 |
+| H. 本地数据、设置与安全 | 87.5% | 87.5% | SQLite v3、provider/profile DPAPI、隐私删除和设置已验证；诊断包待实现 |
 | I. 测试、合规与质量保障 | 21.4% | 21.4% | JSON 契约、确定性协议模拟及截图/DPI 合成样本矩阵已验证 |
 | J. 打包、更新、发布与可观测性 | 0% | 0% | 未开始 |
 
@@ -204,7 +204,7 @@ WorldOfWarcraftAssistant/
 | C++/Codex Host IPC | JSONL over stdio | 使用项目自有、版本化契约，不开放本地网络端口 |
 | 代理运行时 | 开源 Codex App Server / Codex SDK | Codex 是项目正式组件，版本必须锁定并保存许可证声明 |
 | Codex 本地协议 | JSON-RPC over stdio | MVP 不使用实验性 WebSocket 传输，不开放监听端口 |
-| 模型提供方 | DeepSeek/OpenAI 等受控注册云端模型 | 普通玩家主路径；本地适配器仅保留为开发实验和回归夹具 |
+| 模型提供方 | OpenAI、DeepSeek、xAI、OpenRouter、DashScope、Azure OpenAI 等受控云端模型 | 普通玩家主路径；本地适配器仅保留为开发实验和回归夹具 |
 | 游戏工具 | 项目自有只读 MCP/函数工具 | 只开放技能教学、成就、坐骑、宠物、配装和资料查询能力 |
 | 本地数据 | SQLite C/C++ API + Windows Credential Manager/DPAPI | 会话、设置、资料缓存和密钥分离 |
 | 日志 | spdlog 或等价 C++ 结构化日志库 | 默认脱敏，不记录截图和完整问题正文 |
@@ -383,16 +383,21 @@ WoW 插件无法与本地进程建立常规实时 IPC。本项目首期不得通
 7. 伴侣程序退出时，先中断活动 turn，再等待 Codex 子进程退出；超时后只终止由本应用启动且已校验 PID 的子进程。
 8. Codex 崩溃时，本次请求进入可恢复错误；最多自动重启一次，不自动重复发送可能产生费用的模型请求。
 
-首期模型提供方支持：
+首期模型提供方支持（详见 ADR-019）：
 
-- `deepseek`：首个云端联调目标；固定使用官方 `https://api.deepseek.com` Responses API，`deepseek-flash` 注册为视觉模型；
-- `openai`：受控注册表中的另一个云端提供方；必须使用匹配凭据；
+- `openai`：原生 Responses，固定 `api.openai.com`；
+- `deepseek`、`xai`、`openrouter`：官方 Responses/OpenResponses 兼容端点；
+- `dashscope`：区域与 Workspace 模板生成的阿里云 Model Studio Responses 端点；
+- `azure-openai`：资源名、部署名和 API version 组成的 Azure Responses 连接；
+- Anthropic Messages、Gemini `generateContent` 与 Mistral Chat 已评估但不启用，因为锁定 0.159.2
+  只接受 Responses wire API；不得把 SDK/Chat 兼容描述成 App Server 可用性；
 - `local-ollama`：仅保留为开发实验和回归夹具，不是安装或放行前提；
 - `mock`：仅用于开发、契约测试和离线演示。
 
-每个云端提供方由 Host 受控注册表定义 provider ID、显示名、固定 HTTPS base URL、凭据环境变量、
-协议和视觉能力；业务层只携带 provider/model。不得让普通请求任意指定 URL 或凭据变量。模型提供方
-不可用时必须返回可理解错误，不得静默切换到可能产生费用或上传数据的其他提供方。
+每个云端提供方由 Host 受控注册表定义 provider ID、连接策略、显示名、HTTPS allowlist、凭据
+header、Responses 协议和精确模型视觉能力；业务层只携带 provider/model。普通入口没有任意 URL。
+DashScope/Azure 仅从 DNS-safe 标识和固定厂商后缀生成 endpoint。模型提供方不可用时必须返回可
+理解错误，不得静默切换到可能产生费用或上传数据的其他提供方。
 
 ## 5. 内部数据契约
 
@@ -437,7 +442,7 @@ WoW 插件无法与本地进程建立常规实时 IPC。本项目首期不得通
   },
   "runtime": {
     "engine": "codex",
-    "provider": "local-ollama|deepseek|openai|mock",
+    "provider": "local-ollama|openai|deepseek|xai|openrouter|dashscope|azure-openai|mock",
     "model": "string",
     "allowCloudUpload": true
   }
@@ -512,7 +517,7 @@ WoW 插件无法与本地进程建立常规实时 IPC。本项目首期不得通
 | `CODEX_TOOL_BLOCKED` | Codex 请求了非白名单工具或副作用 | 拒绝调用并显示边界提示 | 否 |
 | `MODEL_PROVIDER_UNAVAILABLE` | 本地或云端模型提供方不可用 | 保留问题并引导配置 | 手动 |
 | `MODEL_CAPABILITY_MISSING` | 所选模型不支持图片或结构化要求 | 建议换模型或改用文字 | 手动 |
-| `AI_CREDENTIALS_MISSING` | 当前提供方凭据未配置 | 指向 `.env.local` 开发期配置，不显示或记录密钥值 | 否 |
+| `AI_CREDENTIALS_MISSING` | 当前提供方/profile 凭据未配置 | 打开设置页保存 DPAPI 凭据；`.env.local` 仅显式开发回退 | 否 |
 | `AI_AUTH_FAILED` | AI 身份验证失败 | 打开密钥或账户设置 | 否 |
 | `AI_MODEL_UNAVAILABLE` | 精确模型不存在、禁用或当前不可用 | 保留问题并引导检查模型名 | 手动 |
 | `AI_NETWORK_UNAVAILABLE` | DNS、TLS、连接或断网失败 | 保留问题并提示检查网络 | 可重试 |
@@ -770,7 +775,7 @@ MVP 仅允许以下只读工具：
 | E-09 | 实现应用独立 Codex 配置目录 | [x] | [x] | 真实 App Server 使用应用 state/CODEX_HOME 和空 workspace，不读取全局配置 |
 | E-10 | 实现本地 Ollama 提供方配置 | [x] | [ ] | 历史实验路径已实现；ADR-017 后不再是普通玩家或发布门禁 |
 | E-11 | 实现本地 LM Studio 提供方配置 | [ ] | [ ] | 已移出当前产品范围，不作为普通玩家前提 |
-| E-12 | 实现经用户明确启用的云端提供方 | [x] | [ ] | DeepSeek/OpenAI 受控注册、显式模型、匹配凭据、总开关和逐图同意已接线；真实 DeepSeek 正向链路通过，关闭上传、失败矩阵和网络审计仍待人工验证 |
+| E-12 | 实现经用户明确启用的云端提供方 | [x] | [x] | OpenAI/DeepSeek/xAI/OpenRouter/DashScope/Azure 受控 Responses 配置、总开关、条件字段和目的域审计通过 Mock/严格配置测试；除既有 DeepSeek 外未宣称真实账号通过 |
 | E-13 | 实现模型能力探测 | [x] | [x] | Ollama 版本、精确模型与 text/vision/tools 能力正反例通过；STEP-011 不接收图片 |
 | E-14 | 实现 AssistantRequest 输入校验 | [x] | [x] | 空/超长输入、非法图片、provider/上传目标不匹配和缺失逐图同意元数据被协议/UI 拒绝 |
 | E-15 | 实现技能教学、成就、坐骑、宠物、配装 Codex Skill | [ ] | [ ] | 五类黄金样本满足回答规范 |
@@ -779,7 +784,7 @@ MVP 仅允许以下只读工具：
 | E-18 | 实现结构化回复解析与 Schema 校验 | [x] | [x] | App Server 接收严格输出 Schema；畸形、缺字段、未知字段和越界回复返回 `AI_INVALID_RESPONSE` |
 | E-19 | 实现不确定性和资料版本提示 | [ ] | [ ] | 资料不足时不生成确定性结论 |
 | E-20 | 实现配装建议范围声明 | [ ] | [ ] | 所有配装回复均标注通用或模拟依据 |
-| E-21 | 实现本地及云端用量保护 | [ ] | [ ] | 超出资源或费用上限时停止请求 |
+| E-21 | 实现本地及云端用量保护 | [x] | [x] | 会话/日/月上限、停止阈值、request ID 幂等、零自动重试、Retry-After 冷却和元数据审计测试通过 |
 | E-22 | 建立 App Server 成熟度与替换方案评审 | [x] | [x] | ADR-003 接受锁定适配层路线并记录五类替换触发条件 |
 | E-23 | 实现 Host 对外 JSONL 协议版本协商 | [x] | [x] | v2 hello/ready 协商、版本错误和严格顺序测试通过 |
 | E-24 | 建立 Node.js/TypeScript/Codex 依赖供应链检查 | [x] | [x] | npm 锁、Codex SRI、二进制/Schema 哈希、Apache-2.0 记录和 audit 通过 |
@@ -899,9 +904,9 @@ MVP 仅允许以下只读工具：
 
 | 编号 | 工作项 | 开发完成 | 验证通过 | 验证依据 |
 |---|---|---|---|---|
-| H-01 | 实现版本化本地数据库 | [x] | [x] | SQLite v1→v2 事务迁移、首装、损坏归档恢复和未来版本拒绝测试通过 |
+| H-01 | 实现版本化本地数据库 | [x] | [x] | SQLite v1→v3 事务迁移、首装、损坏归档恢复和未来版本拒绝测试通过 |
 | H-02 | 实现设置读写和默认值恢复 | [x] | [x] | 原子设置写入、范围校验、损坏值安全恢复默认测试通过 |
-| H-03 | 实现凭据安全存储 | [x] | [x] | 当前用户 DPAPI 密文存储/读取/撤销及磁盘明文扫描通过；Host 迁移留 STEP-021 |
+| H-03 | 实现凭据安全存储 | [x] | [x] | provider/profile 隔离的当前用户 DPAPI、密码框/末尾提示、撤销、最小子进程注入及父环境 key 剔除通过 |
 | H-04 | 实现会话保存开关和清理 | [x] | [x] | 默认关闭；关闭不写入并清除既有内容，开启后最多保留 100 轮 |
 | H-05 | 实现截图临时数据清理 | [x] | [x] | C++ 截图仅在内存，应用启动清理专属 vision-temp 崩溃残留且路径边界测试通过 |
 | H-06 | 实现日志脱敏和轮转 | [x] | [x] | 1 MiB×3 轮转；Authorization、密钥、令牌和图片 data URL 落盘前脱敏测试通过 |
@@ -1128,7 +1133,7 @@ MVP 仅允许以下只读工具：
 - [ ] 验证通过：卸载插件后仍能聊天；输入不会进入 WoW，Alt+Tab 后浮层正确隐藏。
 - [ ] 开发完成：锁定 Codex 版本并通过 stdio 完成 initialize、thread 和 turn 流程。
 - [ ] 验证通过：协议事件可流式读取，未知事件和所有副作用审批均失败关闭。
-- [x] 开发完成：接入显式配置的 DeepSeek/OpenAI 云端提供方注册表并完成严格输入/输出与失败关闭接线。
+- [x] 开发完成：接入 ADR-019 六种受控 Responses 云端配置并完成严格输入/输出、凭据隔离与失败关闭接线。
 - [ ] 验证通过：使用真实账号完成文字和图片问答，关闭云端后无请求外发，且不读取用户全局 Codex 配置。
 - [ ] 开发完成：玩家主动截取一张 WoW 画面并通过 Codex 请求具备视觉能力的模型。
 - [ ] 验证通过：截图确认、上传、回复和临时清理完整通过。
@@ -1145,8 +1150,8 @@ MVP 仅允许以下只读工具：
 - [ ] 验证通过：断网、超时、限流和畸形回复测试通过。
 - [ ] 开发完成：截图遮挡、预览和确认。
 - [ ] 验证通过：未确认截图无法离开本机。
-- [ ] 开发完成：本地设置和凭据安全存储。
-- [ ] 验证通过：日志与磁盘扫描无明文密钥。
+- [x] 开发完成：本地设置、统一云端入口和凭据安全存储。
+- [x] 验证通过：日志/SQLite 无明文密钥，Host/App Server 仅收到当前 provider/profile 的 key。
 - [ ] 开发完成：P0 需求追踪项全部关闭。
 - [ ] 验证通过：PRD MVP 验收标准全部通过。
 
@@ -1225,9 +1230,10 @@ MVP 仅允许以下只读工具：
 | ADR-008 | 安装、自动更新和签名方案 | M2 | [ ] |
 | ADR-009 | 匿名遥测是否默认关闭 | M2 | [ ] |
 | ADR-010 | 默认模型提供方使用 Ollama、LM Studio 或用户选择 | M0 | [x] 已被 ADR-017 取代；本地实现降级为开发实验（2026-10-02） |
-| ADR-011 | 云端凭据采用用户自备还是产品后端代理 | M1 | [ ] 当前 PoC 仅使用进程环境，正式产品待决策 |
+| ADR-011 | 云端凭据采用用户自备还是产品后端代理 | M1 | [x] ADR-019 决定当前阶段使用用户自备 key + provider/profile DPAPI；未来后端代理需另立 ADR |
 | ADR-017 | 普通玩家使用云端模型主路径，持续画面观察保持本地 | M0 | [x] 已接受（2026-10-02） |
 | ADR-018 | 使用受控、可扩展的云端 provider 注册表，先联调 DeepSeek | M0 | [x] 已接受（2026-10-02） |
+| ADR-019 | 云端连接策略、凭据注入与用量保护 | M1 | [x] 已接受（2026-10-03） |
 | ADR-012 | Codex App Server 未达到生产成熟度时的替代方案 | M1 | [ ] |
 | ADR-013 | Codex 开源组件分发、NOTICE 和升级策略 | M1 | [ ] |
 | ADR-014 | 聊天 UI 最终采用 WebView2 还是纯 Direct2D/DirectWrite | M0 | [x] 已接受：WebView2 Composition Controller，STEP-008 核心门禁通过（2026-10-01） |

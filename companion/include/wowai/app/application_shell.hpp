@@ -57,7 +57,11 @@ class ApplicationShell final {
                                          LPARAM lparam) noexcept;
     void activate() noexcept;
     void show_settings() noexcept;
-    [[nodiscard]] bool apply_settings(const wowai::storage::AssistantSettings& settings) noexcept;
+    [[nodiscard]] bool apply_settings(const wowai::storage::AssistantSettings& settings,
+                                      const std::optional<std::string>& api_key) noexcept;
+    [[nodiscard]] bool delete_cloud_credential(std::string_view provider,
+                                               std::string_view profile) noexcept;
+    void reload_assistant_session() noexcept;
     [[nodiscard]] bool delete_local_data() noexcept;
     void show_tray_menu() noexcept;
     void refresh_wow_windows() noexcept;
@@ -105,6 +109,7 @@ class ApplicationShell final {
     std::unique_ptr<wowai::overlay::OverlayWindow> overlay_window_;
     std::jthread request_thread_;
     std::atomic_bool request_active_{false};
+    std::uint32_t cloud_session_requests_{};
     std::string assistant_configuration_error_;
     std::string assistant_configuration_code_;
     Lifecycle lifecycle_;

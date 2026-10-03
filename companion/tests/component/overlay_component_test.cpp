@@ -106,8 +106,11 @@ int main() {
             return 21;
         }
         wowai::app::SettingsWindow settings{
-            instance, target, [](const wowai::storage::AssistantSettings&) { return true; },
-            [] { return true; }};
+            instance, target,
+            [](const wowai::storage::AssistantSettings&, const std::optional<std::string>&) {
+                return true;
+            },
+            [] { return true; }, [](std::string_view, std::string_view) { return true; }};
         settings.show(wowai::storage::AssistantSettings::defaults());
         if (!settings.visible()) {
             return 22;

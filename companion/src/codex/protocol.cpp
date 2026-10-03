@@ -35,9 +35,8 @@ bool is_nonnegative_integer(const Json& value) {
 }
 
 bool is_positive_nullable_integer(const Json& value, std::uint64_t maximum) {
-    return value.is_null() ||
-           (is_nonnegative_integer(value) && value.get<std::uint64_t>() >= 1 &&
-            value.get<std::uint64_t>() <= maximum);
+    return value.is_null() || (is_nonnegative_integer(value) && value.get<std::uint64_t>() >= 1 &&
+                               value.get<std::uint64_t>() <= maximum);
 }
 
 bool is_one_of(const Json& value, std::initializer_list<std::string_view> choices) {
@@ -62,10 +61,10 @@ bool is_base64(const Json& value) {
 }
 
 bool is_bridge_field(const Json& value) {
-    return is_one_of(value, {"class", "classId", "specialization", "specializationId", "level",
-                             "zone", "mapId", "activity", "encounterId", "achievementId",
-                             "criteria", "event", "skills", "talents", "actionSlots",
-                             "keyBindings"});
+    return is_one_of(value,
+                     {"class", "classId", "specialization", "specializationId", "level", "zone",
+                      "mapId", "activity", "encounterId", "achievementId", "criteria", "event",
+                      "skills", "talents", "actionSlots", "keyBindings"});
 }
 
 bool is_utc_timestamp(const Json& value) {
@@ -119,15 +118,32 @@ bool is_valid_utf8(std::string_view text, std::size_t* code_points = nullptr) {
 }
 
 bool is_error(const Json& value) {
-    constexpr std::array codes{
-        "WOW_WINDOW_NOT_FOUND",       "ANCHOR_NOT_FOUND",          "CAPTURE_DENIED",
-        "CAPTURE_EMPTY",              "PRIVACY_CONFIRM_REQUIRED", "CODEX_NOT_INSTALLED",
-        "CODEX_VERSION_MISMATCH",     "CODEX_START_FAILED",       "CODEX_PROTOCOL_ERROR",
-        "CODEX_TOOL_BLOCKED",         "MODEL_PROVIDER_UNAVAILABLE", "MODEL_CAPABILITY_MISSING",
-        "AI_CREDENTIALS_MISSING",     "AI_AUTH_FAILED",           "AI_MODEL_UNAVAILABLE",
-        "AI_NETWORK_UNAVAILABLE",     "AI_RATE_LIMITED",          "AI_TIMEOUT",
-        "AI_INVALID_RESPONSE",        "KNOWLEDGE_STALE",          "POLICY_BLOCKED",
-        "BRIDGE_FRAME_INVALID",       "OBSERVATION_STALE",        "TEACHING_SESSION_INACTIVE"};
+    constexpr std::array codes{"WOW_WINDOW_NOT_FOUND",
+                               "ANCHOR_NOT_FOUND",
+                               "CAPTURE_DENIED",
+                               "CAPTURE_EMPTY",
+                               "PRIVACY_CONFIRM_REQUIRED",
+                               "CODEX_NOT_INSTALLED",
+                               "CODEX_VERSION_MISMATCH",
+                               "CODEX_START_FAILED",
+                               "CODEX_PROTOCOL_ERROR",
+                               "CODEX_TOOL_BLOCKED",
+                               "MODEL_PROVIDER_UNAVAILABLE",
+                               "MODEL_CAPABILITY_MISSING",
+                               "AI_CREDENTIALS_MISSING",
+                               "AI_AUTH_FAILED",
+                               "AI_MODEL_UNAVAILABLE",
+                               "AI_NETWORK_UNAVAILABLE",
+                               "AI_RATE_LIMITED",
+                               "AI_TIMEOUT",
+                               "AI_INVALID_RESPONSE",
+                               "AI_USAGE_LIMIT_REACHED",
+                               "AI_DUPLICATE_REQUEST_BLOCKED",
+                               "KNOWLEDGE_STALE",
+                               "POLICY_BLOCKED",
+                               "BRIDGE_FRAME_INVALID",
+                               "OBSERVATION_STALE",
+                               "TEACHING_SESSION_INACTIVE"};
     if (!has_exact_keys(value, {"code", "message", "retryable"}) ||
         !is_string_between(value["message"], 1, 512) || !value["retryable"].is_boolean() ||
         !value["code"].is_string()) {
@@ -138,7 +154,8 @@ bool is_error(const Json& value) {
 }
 
 bool is_answer(const Json& value) {
-    if (!has_exact_keys(value, {"summary", "nextSteps", "constraints", "uncertainties", "followUp"}) ||
+    if (!has_exact_keys(value,
+                        {"summary", "nextSteps", "constraints", "uncertainties", "followUp"}) ||
         !is_string_between(value["summary"], 0, 8000) || !value["nextSteps"].is_array() ||
         value["nextSteps"].size() > 5 || !value["constraints"].is_array() ||
         value["constraints"].size() > 10 || !value["uncertainties"].is_array() ||
@@ -146,7 +163,8 @@ bool is_answer(const Json& value) {
         return false;
     }
     const auto valid_list = [](const Json& list) {
-        return std::ranges::all_of(list, [](const Json& item) { return is_string_between(item, 1, 1000); });
+        return std::ranges::all_of(
+            list, [](const Json& item) { return is_string_between(item, 1, 1000); });
     };
     return valid_list(value["nextSteps"]) && valid_list(value["constraints"]) &&
            valid_list(value["uncertainties"]);
@@ -156,14 +174,14 @@ bool is_answer(const Json& value) {
 
 ValidationResult validate_assistant_request(const Json& value) {
     const bool has_bridge = value.is_object() && value.contains("visualBridge");
-    if (!(has_bridge
-              ? has_exact_keys(value, {"schemaVersion", "requestId", "conversationId", "createdAt",
-                                       "mode", "locale", "gameFlavor", "question", "character",
-                                       "images", "visualBridge", "observations", "privacy", "client",
-                                       "runtime"})
-              : has_exact_keys(value, {"schemaVersion", "requestId", "conversationId", "createdAt",
-                                       "mode", "locale", "gameFlavor", "question", "character",
-                                       "images", "observations", "privacy", "client", "runtime"}))) {
+    if (!(has_bridge ? has_exact_keys(value, {"schemaVersion", "requestId", "conversationId",
+                                              "createdAt", "mode", "locale", "gameFlavor",
+                                              "question", "character", "images", "visualBridge",
+                                              "observations", "privacy", "client", "runtime"})
+                     : has_exact_keys(value, {"schemaVersion", "requestId", "conversationId",
+                                              "createdAt", "mode", "locale", "gameFlavor",
+                                              "question", "character", "images", "observations",
+                                              "privacy", "client", "runtime"}))) {
         return rejected("request fields do not match contract");
     }
     std::size_t question_length = 0;
@@ -178,9 +196,11 @@ ValidationResult validate_assistant_request(const Json& value) {
     }
 
     const auto& character = value["character"];
-    if (!has_exact_keys(character, {"region", "realm", "name", "classId", "specializationId", "level"}) ||
+    if (!has_exact_keys(character,
+                        {"region", "realm", "name", "classId", "specializationId", "level"}) ||
         !is_one_of(character["region"], {"cn", "us", "eu", "kr", "tw"}) ||
-        !is_nullable_string(character["realm"], 128) || !is_nullable_string(character["name"], 128) ||
+        !is_nullable_string(character["realm"], 128) ||
+        !is_nullable_string(character["name"], 128) ||
         !is_positive_nullable_integer(character["classId"], UINT32_MAX) ||
         !is_positive_nullable_integer(character["specializationId"], UINT32_MAX) ||
         !is_positive_nullable_integer(character["level"], 100)) {
@@ -191,18 +211,20 @@ ValidationResult validate_assistant_request(const Json& value) {
         return rejected("image list is invalid");
     }
     for (const auto& image : value["images"]) {
-        if (!has_exact_keys(image, {"id", "mimeType", "captureScope", "sha256", "dataBase64",
-                                    "privacyMaskApplied", "userConfirmed", "uploadDestination",
-                                    "uploadPurpose", "uploadConfirmedAt", "consentNoticeVersion"}) ||
+        if (!has_exact_keys(image,
+                            {"id", "mimeType", "captureScope", "sha256", "dataBase64",
+                             "privacyMaskApplied", "userConfirmed", "uploadDestination",
+                             "uploadPurpose", "uploadConfirmedAt", "consentNoticeVersion"}) ||
             !is_uuid(image["id"]) || image["mimeType"] != "image/png" ||
             !is_one_of(image["captureScope"], {"wow-window", "selected-region", "tooltip"}) ||
-            !image["sha256"].is_string() || image["sha256"].get_ref<const std::string&>().size() != 64 ||
-            !is_base64(image["dataBase64"]) ||
-            !image["privacyMaskApplied"].is_boolean() || image["userConfirmed"] != true ||
-            !is_one_of(image["uploadDestination"], {"openai", "deepseek"}) ||
+            !image["sha256"].is_string() ||
+            image["sha256"].get_ref<const std::string&>().size() != 64 ||
+            !is_base64(image["dataBase64"]) || !image["privacyMaskApplied"].is_boolean() ||
+            image["userConfirmed"] != true ||
+            !is_one_of(image["uploadDestination"],
+                       {"openai", "deepseek", "xai", "openrouter", "dashscope", "azure-openai"}) ||
             image["uploadPurpose"] != "visual-question" ||
-            !is_utc_timestamp(image["uploadConfirmedAt"]) ||
-            image["consentNoticeVersion"] != 1) {
+            !is_utc_timestamp(image["uploadConfirmedAt"]) || image["consentNoticeVersion"] != 1) {
             return rejected("image context is invalid");
         }
     }
@@ -228,40 +250,53 @@ ValidationResult validate_assistant_request(const Json& value) {
         return rejected("observation list is invalid");
     }
     for (const auto& observation : value["observations"]) {
-        if (!has_exact_keys(observation, {"id", "source", "kind", "capturedAt", "confidence", "summary"}) ||
+        if (!has_exact_keys(observation,
+                            {"id", "source", "kind", "capturedAt", "confidence", "summary"}) ||
             !is_uuid(observation["id"]) ||
-            !is_one_of(observation["source"], {"plugin-public", "profile-cache", "screen-observed", "model-inferred"}) ||
-            !is_one_of(observation["kind"], {"build", "game-state", "achievement-progress", "combat-ui", "screen-text"}) ||
-            !is_utc_timestamp(observation["capturedAt"]) || !observation["confidence"].is_number() ||
-            observation["confidence"].get<double>() < 0.0 || observation["confidence"].get<double>() > 1.0 ||
+            !is_one_of(observation["source"],
+                       {"plugin-public", "profile-cache", "screen-observed", "model-inferred"}) ||
+            !is_one_of(observation["kind"], {"build", "game-state", "achievement-progress",
+                                             "combat-ui", "screen-text"}) ||
+            !is_utc_timestamp(observation["capturedAt"]) ||
+            !observation["confidence"].is_number() ||
+            observation["confidence"].get<double>() < 0.0 ||
+            observation["confidence"].get<double>() > 1.0 ||
             !is_string_between(observation["summary"], 1, 4000)) {
             return rejected("observation is invalid");
         }
     }
 
     const auto& privacy = value["privacy"];
-    if (!has_exact_keys(privacy, {"selectedWindowOnly", "screenObservationEnabled", "rawFramesPersisted"}) ||
-        privacy["selectedWindowOnly"] != true || !privacy["screenObservationEnabled"].is_boolean() ||
+    if (!has_exact_keys(privacy,
+                        {"selectedWindowOnly", "screenObservationEnabled", "rawFramesPersisted"}) ||
+        privacy["selectedWindowOnly"] != true ||
+        !privacy["screenObservationEnabled"].is_boolean() ||
         privacy["rawFramesPersisted"] != false) {
         return rejected("privacy boundary is invalid");
     }
 
     const auto& client = value["client"];
     if (!has_exact_keys(client, {"addonVersion", "companionVersion", "uiScale"}) ||
-        !is_nullable_string(client["addonVersion"], 64) || !is_string_between(client["companionVersion"], 1, 64) ||
-        !(client["uiScale"].is_null() || (client["uiScale"].is_number() && client["uiScale"].get<double>() >= 0.5 &&
-                                         client["uiScale"].get<double>() <= 4.0))) {
+        !is_nullable_string(client["addonVersion"], 64) ||
+        !is_string_between(client["companionVersion"], 1, 64) ||
+        !(client["uiScale"].is_null() ||
+          (client["uiScale"].is_number() && client["uiScale"].get<double>() >= 0.5 &&
+           client["uiScale"].get<double>() <= 4.0))) {
         return rejected("client context is invalid");
     }
 
     const auto& runtime = value["runtime"];
     if (!has_exact_keys(runtime, {"engine", "provider", "model", "allowCloudUpload"}) ||
         runtime["engine"] != "codex" ||
-        !is_one_of(runtime["provider"], {"local-ollama", "local-lmstudio", "openai", "deepseek", "mock"}) ||
+        !is_one_of(runtime["provider"],
+                   {"local-ollama", "local-lmstudio", "openai", "deepseek", "xai", "openrouter",
+                    "dashscope", "azure-openai", "mock"}) ||
         !is_string_between(runtime["model"], 1, 128) || !runtime["allowCloudUpload"].is_boolean() ||
-        ((runtime["provider"] == "openai" || runtime["provider"] == "deepseek") &&
+        (is_one_of(runtime["provider"],
+                   {"openai", "deepseek", "xai", "openrouter", "dashscope", "azure-openai"}) &&
          runtime["allowCloudUpload"] != true) ||
-        ((runtime["provider"] != "openai" && runtime["provider"] != "deepseek") &&
+        (!is_one_of(runtime["provider"],
+                    {"openai", "deepseek", "xai", "openrouter", "dashscope", "azure-openai"}) &&
          runtime["allowCloudUpload"] != false) ||
         (!value["images"].empty() &&
          value["images"][0]["uploadDestination"] != runtime["provider"])) {
@@ -276,14 +311,17 @@ ValidationResult validate_assistant_response(const Json& value) {
         value["schemaVersion"] != protocol_version || !is_uuid(value["requestId"]) ||
         !is_one_of(value["status"], {"completed", "needs_context", "refused", "failed"}) ||
         !is_one_of(value["mode"], {"achievement", "mount", "pet", "gear", "general", "coach"}) ||
-        !is_answer(value["answer"]) || !value["sources"].is_array() || value["sources"].size() > 20) {
+        !is_answer(value["answer"]) || !value["sources"].is_array() ||
+        value["sources"].size() > 20) {
         return rejected("response fields are invalid");
     }
     for (const auto& source : value["sources"]) {
         if (!has_exact_keys(source, {"title", "url", "dataVersion"}) ||
-            !is_string_between(source["title"], 1, 256) || !is_nullable_string(source["url"], 2048) ||
+            !is_string_between(source["title"], 1, 256) ||
+            !is_nullable_string(source["url"], 2048) ||
             !is_nullable_string(source["dataVersion"], 128) ||
-            (source["url"].is_string() && !source["url"].get_ref<const std::string&>().starts_with("https://"))) {
+            (source["url"].is_string() &&
+             !source["url"].get_ref<const std::string&>().starts_with("https://"))) {
             return rejected("source is invalid");
         }
     }
@@ -293,19 +331,22 @@ ValidationResult validate_assistant_response(const Json& value) {
     for (const auto& provenance : value["provenance"]) {
         if (!has_exact_keys(provenance, {"observationId", "source", "confidence", "reason"}) ||
             !is_uuid(provenance["observationId"]) ||
-            !is_one_of(provenance["source"], {"plugin-public", "profile-cache", "screen-observed", "model-inferred"}) ||
+            !is_one_of(provenance["source"],
+                       {"plugin-public", "profile-cache", "screen-observed", "model-inferred"}) ||
             !provenance["confidence"].is_number() || provenance["confidence"].get<double>() < 0.0 ||
-            provenance["confidence"].get<double>() > 1.0 || !is_string_between(provenance["reason"], 1, 1000)) {
+            provenance["confidence"].get<double>() > 1.0 ||
+            !is_string_between(provenance["reason"], 1, 1000)) {
             return rejected("provenance item is invalid");
         }
     }
     const auto& usage = value["usage"];
-    if (!has_exact_keys(usage, {"imageUsed", "knowledgeUsed", "screenObservationUsed", "addonBridgeUsed",
-                                "runtime", "provider"}) ||
+    if (!has_exact_keys(usage, {"imageUsed", "knowledgeUsed", "screenObservationUsed",
+                                "addonBridgeUsed", "runtime", "provider"}) ||
         !usage["imageUsed"].is_boolean() || !usage["knowledgeUsed"].is_boolean() ||
         !usage["screenObservationUsed"].is_boolean() || !usage["addonBridgeUsed"].is_boolean() ||
         usage["runtime"] != "codex" ||
-        !is_one_of(usage["provider"], {"local-ollama", "local-lmstudio", "openai", "deepseek", "mock"})) {
+        !is_one_of(usage["provider"], {"local-ollama", "local-lmstudio", "openai", "deepseek",
+                                       "xai", "openrouter", "dashscope", "azure-openai", "mock"})) {
         return rejected("usage is invalid");
     }
     const bool failed = value["status"] == "failed";
@@ -316,32 +357,38 @@ ValidationResult validate_assistant_response(const Json& value) {
 }
 
 ValidationResult validate_envelope(const Json& value) {
-    if (!has_exact_keys(value, {"protocolVersion", "messageId", "kind", "requestId", "sequence", "sentAt",
-                                "timeoutMs", "payload"}) ||
+    if (!has_exact_keys(value, {"protocolVersion", "messageId", "kind", "requestId", "sequence",
+                                "sentAt", "timeoutMs", "payload"}) ||
         value["protocolVersion"] != protocol_version || !is_uuid(value["messageId"]) ||
         !is_one_of(value["kind"], {"hello", "ready", "request", "cancel", "response", "error"}) ||
-        !(value["requestId"].is_null() || is_uuid(value["requestId"])) || !is_nonnegative_integer(value["sequence"]) ||
-        !is_utc_timestamp(value["sentAt"]) ||
+        !(value["requestId"].is_null() || is_uuid(value["requestId"])) ||
+        !is_nonnegative_integer(value["sequence"]) || !is_utc_timestamp(value["sentAt"]) ||
         !(value["timeoutMs"].is_null() ||
-          (is_nonnegative_integer(value["timeoutMs"]) && value["timeoutMs"].get<std::uint64_t>() >= 1000 &&
+          (is_nonnegative_integer(value["timeoutMs"]) &&
+           value["timeoutMs"].get<std::uint64_t>() >= 1000 &&
            value["timeoutMs"].get<std::uint64_t>() <= max_timeout_ms))) {
         return rejected("envelope fields are invalid");
     }
     const auto& kind = value["kind"].get_ref<const std::string&>();
     const auto& payload = value["payload"];
     if (kind == "hello") {
-        if (!value["requestId"].is_null() || value["sequence"] != 0 || !value["timeoutMs"].is_null() ||
+        if (!value["requestId"].is_null() || value["sequence"] != 0 ||
+            !value["timeoutMs"].is_null() ||
             !has_exact_keys(payload, {"supportedVersions", "maxMessageBytes"}) ||
             !payload["supportedVersions"].is_array() || payload["supportedVersions"].empty() ||
-            !std::ranges::all_of(payload["supportedVersions"], [](const Json& item) { return item == protocol_version; }) ||
-            !is_nonnegative_integer(payload["maxMessageBytes"]) || payload["maxMessageBytes"].get<std::uint64_t>() < 1024 ||
+            !std::ranges::all_of(payload["supportedVersions"],
+                                 [](const Json& item) { return item == protocol_version; }) ||
+            !is_nonnegative_integer(payload["maxMessageBytes"]) ||
+            payload["maxMessageBytes"].get<std::uint64_t>() < 1024 ||
             payload["maxMessageBytes"].get<std::uint64_t>() > max_message_bytes) {
             return rejected("hello envelope is invalid");
         }
     } else if (kind == "ready") {
-        if (!value["requestId"].is_null() || value["sequence"] != 1 || !value["timeoutMs"].is_null() ||
+        if (!value["requestId"].is_null() || value["sequence"] != 1 ||
+            !value["timeoutMs"].is_null() ||
             !has_exact_keys(payload, {"selectedVersion", "maxMessageBytes"}) ||
-            payload["selectedVersion"] != protocol_version || !is_nonnegative_integer(payload["maxMessageBytes"]) ||
+            payload["selectedVersion"] != protocol_version ||
+            !is_nonnegative_integer(payload["maxMessageBytes"]) ||
             payload["maxMessageBytes"].get<std::uint64_t>() < 1024 ||
             payload["maxMessageBytes"].get<std::uint64_t>() > max_message_bytes) {
             return rejected("ready envelope is invalid");
@@ -351,8 +398,8 @@ ValidationResult validate_envelope(const Json& value) {
             return rejected("request-scoped envelope lacks requestId");
         }
         if (kind == "request" &&
-            (value["sequence"] != 0 || value["timeoutMs"].is_null() || !validate_assistant_request(payload) ||
-             payload["requestId"] != value["requestId"])) {
+            (value["sequence"] != 0 || value["timeoutMs"].is_null() ||
+             !validate_assistant_request(payload) || payload["requestId"] != value["requestId"])) {
             return rejected("request envelope is invalid");
         }
         if (kind == "response" &&
@@ -401,17 +448,19 @@ void from_json(const Json& value, AssistantRequest& request) {
     request.game_flavor = value.at("gameFlavor").get<std::string>();
     request.question = value.at("question").get<std::string>();
     const auto& character = value.at("character");
-    request.character = {character.at("region").get<std::string>(), character.at("realm").get<std::optional<std::string>>(),
+    request.character = {character.at("region").get<std::string>(),
+                         character.at("realm").get<std::optional<std::string>>(),
                          character.at("name").get<std::optional<std::string>>(),
                          character.at("classId").get<std::optional<std::uint32_t>>(),
                          character.at("specializationId").get<std::optional<std::uint32_t>>(),
                          character.at("level").get<std::optional<std::uint32_t>>()};
     request.images.clear();
     for (const auto& image : value.at("images")) {
-        request.images.push_back({image.at("id").get<std::string>(), image.at("mimeType").get<std::string>(),
-                                  image.at("captureScope").get<std::string>(), image.at("sha256").get<std::string>(),
-                                  image.at("dataBase64").get<std::string>(),
-                                  image.at("privacyMaskApplied").get<bool>(), image.at("userConfirmed").get<bool>()});
+        request.images.push_back(
+            {image.at("id").get<std::string>(), image.at("mimeType").get<std::string>(),
+             image.at("captureScope").get<std::string>(), image.at("sha256").get<std::string>(),
+             image.at("dataBase64").get<std::string>(), image.at("privacyMaskApplied").get<bool>(),
+             image.at("userConfirmed").get<bool>()});
     }
     request.observations = value.at("observations");
     request.privacy = value.at("privacy");

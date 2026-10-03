@@ -4,6 +4,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cwchar>
+#include <cwctype>
+#include <map>
 #include <stdexcept>
 #include <system_error>
 #include <utility>
@@ -67,6 +70,46 @@ void make_parent_only(HANDLE handle) {
     }
 }
 
+struct CaseInsensitiveLess {
+    bool operator()(const std::wstring& left, const std::wstring& right) const noexcept {
+        return std::lexicographical_compare(
+            left.begin(), left.end(), right.begin(), right.end(),
+            [](const wchar_t a, const wchar_t b) { return std::towlower(a) < std::towlower(b); });
+    }
+};
+
+std::vector<wchar_t> child_environment(const HostLaunchOptions& options) {
+    std::map<std::wstring, std::wstring, CaseInsensitiveLess> values;
+    wchar_t* raw = ::GetEnvironmentStringsW();
+    if (raw == nullptr)
+        throw_last_error("GetEnvironmentStringsW failed");
+    for (const wchar_t* entry = raw; *entry != L'\0'; entry += std::wcslen(entry) + 1) {
+        const std::wstring value{entry};
+        const auto separator = value.find(L'=', value.starts_with(L'=') ? 1 : 0);
+        if (separator != std::wstring::npos)
+            values[value.substr(0, separator)] = value.substr(separator + 1);
+    }
+    ::FreeEnvironmentStringsW(raw);
+    for (const auto& name : options.environment_remove)
+        values.erase(name);
+    for (const auto& [name, value] : options.environment_overrides) {
+        if (name.empty() || name.find(L'=') != std::wstring::npos ||
+            value.find(L'\0') != std::wstring::npos) {
+            throw std::invalid_argument("child environment override is invalid");
+        }
+        values[name] = value;
+    }
+    std::vector<wchar_t> block;
+    for (const auto& [name, value] : values) {
+        block.insert(block.end(), name.begin(), name.end());
+        block.push_back(L'=');
+        block.insert(block.end(), value.begin(), value.end());
+        block.push_back(L'\0');
+    }
+    block.push_back(L'\0');
+    return block;
+}
+
 } // namespace
 
 HostProcess::HostProcess(const HostLaunchOptions& options)
@@ -86,7 +129,8 @@ HostProcess::HostProcess(const HostLaunchOptions& options)
     make_parent_only(stderr_read_.get());
 
     job_.reset(::CreateJobObjectW(nullptr, nullptr));
-    if (!job_) throw_last_error("CreateJobObjectW failed");
+    if (!job_)
+        throw_last_error("CreateJobObjectW failed");
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION job_information{};
     job_information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     if (::SetInformationJobObject(job_.get(), JobObjectExtendedLimitInformation, &job_information,
@@ -103,9 +147,11 @@ HostProcess::HostProcess(const HostLaunchOptions& options)
     PROCESS_INFORMATION process_information{};
     std::wstring command = command_line(options);
     std::wstring working_directory = options.working_directory.native();
+    auto environment = child_environment(options);
     if (::CreateProcessW(options.executable.c_str(), command.data(), nullptr, nullptr, TRUE,
-                         CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, working_directory.c_str(),
-                         &startup, &process_information) == FALSE) {
+                         CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+                         environment.data(), working_directory.c_str(), &startup,
+                         &process_information) == FALSE) {
         throw_last_error("CreateProcessW failed");
     }
     process_.reset(process_information.hProcess);
@@ -169,8 +215,10 @@ HostReadResult HostProcess::read_line(const std::chrono::milliseconds timeout,
         }
 
         DWORD available{};
-        if (::PeekNamedPipe(stdout_read_.get(), nullptr, 0, nullptr, &available, nullptr) == FALSE) {
-            if (::GetLastError() != ERROR_BROKEN_PIPE) throw_last_error("PeekNamedPipe failed");
+        if (::PeekNamedPipe(stdout_read_.get(), nullptr, 0, nullptr, &available, nullptr) ==
+            FALSE) {
+            if (::GetLastError() != ERROR_BROKEN_PIPE)
+                throw_last_error("PeekNamedPipe failed");
             available = 0;
         }
         if (available != 0) {
@@ -178,7 +226,8 @@ HostReadResult HostProcess::read_line(const std::chrono::milliseconds timeout,
             DWORD read{};
             const DWORD requested = std::min<DWORD>(available, static_cast<DWORD>(chunk.size()));
             if (::ReadFile(stdout_read_.get(), chunk.data(), requested, &read, nullptr) == FALSE) {
-                if (::GetLastError() != ERROR_BROKEN_PIPE) throw_last_error("ReadFile failed");
+                if (::GetLastError() != ERROR_BROKEN_PIPE)
+                    throw_last_error("ReadFile failed");
             } else {
                 stdout_buffer_.append(chunk.data(), read);
             }
@@ -187,10 +236,12 @@ HostReadResult HostProcess::read_line(const std::chrono::milliseconds timeout,
 
         DWORD exit_code = STILL_ACTIVE;
         if (!process_ || ::GetExitCodeProcess(process_.get(), &exit_code) == FALSE) {
-            if (process_) throw_last_error("GetExitCodeProcess failed");
+            if (process_)
+                throw_last_error("GetExitCodeProcess failed");
             return {HostReadStatus::exited, {}, exit_code};
         }
-        if (exit_code != STILL_ACTIVE) return {HostReadStatus::exited, {}, exit_code};
+        if (exit_code != STILL_ACTIVE)
+            return {HostReadStatus::exited, {}, exit_code};
         if (std::chrono::steady_clock::now() >= deadline) {
             return {HostReadStatus::timeout, {}, STILL_ACTIVE};
         }
@@ -210,7 +261,8 @@ std::string HostProcess::take_stderr() {
 }
 
 void HostProcess::shutdown() noexcept {
-    if (shutdown_started_) return;
+    if (shutdown_started_)
+        return;
     shutdown_started_ = true;
     stdin_write_.reset();
     if (process_ &&
@@ -222,7 +274,8 @@ void HostProcess::shutdown() noexcept {
     process_.reset();
     job_.reset();
     stdout_read_.reset();
-    if (stderr_thread_.joinable()) stderr_thread_.join();
+    if (stderr_thread_.joinable())
+        stderr_thread_.join();
     stderr_read_.reset();
 }
 
@@ -237,8 +290,8 @@ void HostProcess::drain_stderr() noexcept {
         }
         std::scoped_lock lock(stderr_mutex_);
         constexpr std::size_t maximum_diagnostics = 64 * 1'024;
-        const std::size_t remaining = maximum_diagnostics -
-                                      std::min(maximum_diagnostics, stderr_buffer_.size());
+        const std::size_t remaining =
+            maximum_diagnostics - std::min(maximum_diagnostics, stderr_buffer_.size());
         stderr_buffer_.append(chunk.data(), std::min<std::size_t>(read, remaining));
     }
 }

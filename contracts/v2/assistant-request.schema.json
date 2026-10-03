@@ -74,7 +74,9 @@
           },
           "privacyMaskApplied": { "type": "boolean" },
           "userConfirmed": { "const": true },
-          "uploadDestination": { "enum": ["openai", "deepseek"] },
+          "uploadDestination": {
+            "enum": ["openai", "deepseek", "xai", "openrouter", "dashscope", "azure-openai"]
+          },
           "uploadPurpose": { "const": "visual-question" },
           "uploadConfirmedAt": { "type": "string", "format": "date-time", "pattern": "Z$" },
           "consentNoticeVersion": { "const": 1 }
@@ -160,14 +162,30 @@
       "required": ["engine", "provider", "model", "allowCloudUpload"],
       "properties": {
         "engine": { "const": "codex" },
-        "provider": { "enum": ["local-ollama", "local-lmstudio", "openai", "deepseek", "mock"] },
+        "provider": {
+          "enum": [
+            "local-ollama",
+            "local-lmstudio",
+            "openai",
+            "deepseek",
+            "xai",
+            "openrouter",
+            "dashscope",
+            "azure-openai",
+            "mock"
+          ]
+        },
         "model": { "type": "string", "minLength": 1, "maxLength": 128 },
         "allowCloudUpload": { "type": "boolean" }
       },
       "allOf": [
         {
           "if": {
-            "properties": { "provider": { "enum": ["openai", "deepseek"] } },
+            "properties": {
+              "provider": {
+                "enum": ["openai", "deepseek", "xai", "openrouter", "dashscope", "azure-openai"]
+              }
+            },
             "required": ["provider"]
           },
           "then": { "properties": { "allowCloudUpload": { "const": true } } },
@@ -183,7 +201,9 @@
         "properties": {
           "runtime": {
             "properties": {
-              "provider": { "enum": ["openai", "deepseek"] },
+              "provider": {
+                "enum": ["openai", "deepseek", "xai", "openrouter", "dashscope", "azure-openai"]
+              },
               "allowCloudUpload": { "const": true }
             }
           }
@@ -214,6 +234,48 @@
         "properties": {
           "images": {
             "items": { "properties": { "uploadDestination": { "const": "deepseek" } } }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "runtime": { "properties": { "provider": { "const": "xai" } } } } },
+      "then": {
+        "properties": {
+          "images": { "items": { "properties": { "uploadDestination": { "const": "xai" } } } }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "runtime": { "properties": { "provider": { "const": "openrouter" } } } }
+      },
+      "then": {
+        "properties": {
+          "images": {
+            "items": { "properties": { "uploadDestination": { "const": "openrouter" } } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "runtime": { "properties": { "provider": { "const": "dashscope" } } } }
+      },
+      "then": {
+        "properties": {
+          "images": { "items": { "properties": { "uploadDestination": { "const": "dashscope" } } } }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "runtime": { "properties": { "provider": { "const": "azure-openai" } } } }
+      },
+      "then": {
+        "properties": {
+          "images": {
+            "items": { "properties": { "uploadDestination": { "const": "azure-openai" } } }
           }
         }
       }

@@ -11,6 +11,15 @@ struct sqlite3;
 
 namespace wowai::storage {
 
+enum class CloudRequestAuthorization {
+    allowed,
+    cloud_disabled,
+    duplicate,
+    session_limit,
+    daily_limit,
+    monthly_limit,
+};
+
 class LocalDatabase final {
   public:
     explicit LocalDatabase(std::filesystem::path path);
@@ -26,6 +35,11 @@ class LocalDatabase final {
     void save_exchange(std::string_view question, std::string_view answer);
     [[nodiscard]] std::int64_t saved_exchange_count() const;
     void clear_conversations();
+    [[nodiscard]] CloudRequestAuthorization
+    authorize_cloud_request(const AssistantSettings& settings, std::uint32_t session_requests,
+                            std::string_view request_id, std::string_view destination,
+                            bool includes_image);
+    [[nodiscard]] std::int64_t cloud_audit_count() const;
     void reset_all();
 
     [[nodiscard]] int schema_version() const;

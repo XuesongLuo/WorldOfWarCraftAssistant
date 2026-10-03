@@ -22,7 +22,9 @@ Cloud failures are normalized before they cross the Host boundary: missing crede
 `AI_CREDENTIALS_MISSING`, rejected credentials use `AI_AUTH_FAILED`, an unavailable exact model uses
 `AI_MODEL_UNAVAILABLE`, connectivity failures use `AI_NETWORK_UNAVAILABLE`, provider throttling uses
 `AI_RATE_LIMITED`, and an invalid structured answer uses `AI_INVALID_RESPONSE`. Provider response
-text, API keys, Authorization headers, and request bodies are not copied into UI errors.
+text, API keys, Authorization headers, and request bodies are not copied into UI errors. A local
+usage stop returns `AI_USAGE_LIMIT_REACHED`; a reused durable request ID returns
+`AI_DUPLICATE_REQUEST_BLOCKED` before network dispatch.
 
 ## Files
 
@@ -123,3 +125,22 @@ requirement or a release gate.
 - Diagnostics are bounded and redacted before forwarding. Credential values, bearer tokens, raw
   provider errors, image Base64, and request bodies must not enter stdout, UI errors, or committed
   evidence.
+
+## STEP-021 cloud connection and usage boundary
+
+- Cloud providers are `openai`, `deepseek`, `xai`, `openrouter`, `dashscope`, and `azure-openai`.
+  Each uses an allowlisted HTTPS Responses endpoint and exact model/deployment. A cloud request has
+  `allowCloudUpload: true`; all other providers require `false`; image `uploadDestination` must
+  exactly match the runtime provider.
+- The locked App Server accepts only the Responses wire API. Anthropic Messages, Gemini native
+  `generateContent`, and Mistral Chat are not protocol members and cannot be selected through this
+  contract until a separately tested Host adapter exists.
+- Provider/profile DPAPI values never enter an assistant envelope. The C++ parent injects one
+  `WOWAI_ACTIVE_API_KEY` only into its owned Host; the Host strips every unrelated provider key and
+  forwards the active key only to its owned App Server.
+- SQLite audit stores request ID, UTC time, provider, profile, model, destination domain and an
+  image-present boolean. It stores no question, response, Base64, path, header or credential.
+  A unique request ID plus session/day/month stop thresholds authorize dispatch before any image is
+  consumed or any network-capable work begins.
+- Provider request and stream retry counts are zero. `Retry-After` creates a bounded local cooldown;
+  neither Host recovery nor a rate-limit error resubmits text or images automatically.

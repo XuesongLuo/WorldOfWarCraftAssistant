@@ -20,6 +20,8 @@ struct HostLaunchOptions {
     std::vector<std::wstring> arguments;
     std::filesystem::path working_directory;
     std::chrono::milliseconds shutdown_timeout{2'000};
+    std::vector<std::pair<std::wstring, std::wstring>> environment_overrides;
+    std::vector<std::wstring> environment_remove;
 };
 
 enum class HostReadStatus { line, timeout, exited, cancelled };

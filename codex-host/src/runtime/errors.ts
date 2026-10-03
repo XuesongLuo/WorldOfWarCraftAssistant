@@ -72,6 +72,32 @@ export function classifyCloudModelError(error: unknown): AssistantError | undefi
   return undefined;
 }
 
+export function retryAfterMilliseconds(error: unknown, now = Date.now()): number {
+  const signal = collectErrorSignal(error);
+  const seconds = /retry[- ]?after\s*[:=]?\s*(\d{1,6})(?:\s*(?:seconds?|s))?/iu.exec(signal);
+  if (seconds?.[1] !== undefined) return Math.min(Number(seconds[1]) * 1_000, 3_600_000);
+  const delay = /try again in\s*(\d{1,6})\s*(milliseconds?|ms|seconds?|s|minutes?|m)/iu.exec(
+    signal,
+  );
+  if (delay?.[1] !== undefined && delay[2] !== undefined) {
+    const value = Number(delay[1]);
+    const unit = delay[2].toLowerCase();
+    const multiplier =
+      unit.startsWith('m') && unit !== 'ms'
+        ? 60_000
+        : unit === 'ms' || unit.startsWith('millisecond')
+          ? 1
+          : 1_000;
+    return Math.min(value * multiplier, 3_600_000);
+  }
+  const date = /retry[- ]?after\s*[:=]\s*([^\r\n]+)/iu.exec(signal)?.[1];
+  if (date !== undefined) {
+    const parsed = Date.parse(date.trim());
+    if (Number.isFinite(parsed)) return Math.min(Math.max(0, parsed - now), 3_600_000);
+  }
+  return 30_000;
+}
+
 export function redactSensitiveText(
   value: string,
   credentials: ReadonlyArray<string | undefined> = [],

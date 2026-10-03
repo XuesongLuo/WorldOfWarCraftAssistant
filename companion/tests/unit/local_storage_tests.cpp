@@ -1,3 +1,4 @@
+#include "wowai/codex/assistant_session.hpp"
 #include "wowai/storage/application_paths.hpp"
 #include "wowai/storage/credential_store.hpp"
 #include "wowai/storage/local_data.hpp"
@@ -45,7 +46,7 @@ TEST_CASE("local database migrates first install and persists validated settings
     const auto database_path = directory.path() / L"assistant.db";
     {
         wowai::storage::LocalDatabase database{database_path};
-        CHECK(database.schema_version() == 2);
+        CHECK(database.schema_version() == 3);
         CHECK(database.load_settings() == wowai::storage::AssistantSettings::defaults());
 
         auto settings = wowai::storage::AssistantSettings::defaults();
@@ -64,7 +65,7 @@ TEST_CASE("local database migrates first install and persists validated settings
 
 TEST_CASE("local database supports a non-persistent safe fallback") {
     wowai::storage::LocalDatabase database{std::filesystem::path{L":memory:"}};
-    CHECK(database.schema_version() == 2);
+    CHECK(database.schema_version() == 3);
     auto settings = database.load_settings();
     settings.overlay_opacity_percent = 75;
     database.save_settings(settings);
@@ -126,7 +127,7 @@ TEST_CASE("corrupt local database is archived and defaults recover") {
         output << "not-a-sqlite-database";
     }
     wowai::storage::LocalDatabase database{path};
-    CHECK(database.schema_version() == 2);
+    CHECK(database.schema_version() == 3);
     CHECK(database.load_settings() == wowai::storage::AssistantSettings::defaults());
     std::size_t backups{};
     for (const auto& entry : std::filesystem::directory_iterator(directory.path())) {
@@ -149,7 +150,7 @@ TEST_CASE("local database upgrades v1 atomically and refuses a newer schema") {
     ::sqlite3_close(raw);
     {
         wowai::storage::LocalDatabase upgraded{path};
-        CHECK(upgraded.schema_version() == 2);
+        CHECK(upgraded.schema_version() == 3);
         upgraded.clear_conversations();
     }
     REQUIRE(::sqlite3_open(reinterpret_cast<const char*>(path_text.c_str()), &raw) == SQLITE_OK);
@@ -182,7 +183,7 @@ TEST_CASE("credential store uses DPAPI ciphertext and supports revocation") {
     wowai::storage::CredentialStore credentials{directory.path() / L"Credentials"};
     constexpr std::string_view secret = "sk-never-plain-text-123456";
     credentials.write("openai", secret);
-    const auto file = directory.path() / L"Credentials" / L"openai.dpapi";
+    const auto file = directory.path() / L"Credentials" / L"openai--default.dpapi";
     CHECK(std::filesystem::exists(file));
     CHECK(read_binary(file).find(secret) == std::string::npos);
     REQUIRE(credentials.read("openai"));
@@ -190,6 +191,88 @@ TEST_CASE("credential store uses DPAPI ciphertext and supports revocation") {
     credentials.erase("openai");
     CHECK_FALSE(credentials.read("openai"));
     CHECK_FALSE(wowai::storage::CredentialStore::valid_provider("../escape"));
+}
+
+TEST_CASE("credentials are isolated by provider and profile entropy") {
+    TestDirectory directory;
+    wowai::storage::CredentialStore credentials{directory.path() / L"Credentials"};
+    credentials.write("openai", "personal", "secret-one");
+    credentials.write("openai", "guild", "secret-two");
+    credentials.write("xai", "personal", "secret-three");
+    CHECK(credentials.read("openai", "personal") == "secret-one");
+    CHECK(credentials.read("openai", "guild") == "secret-two");
+    CHECK(credentials.read("xai", "personal") == "secret-three");
+    credentials.write("openai", "guild", "replacement-secret");
+    CHECK(credentials.read("openai", "guild") == "replacement-secret");
+    credentials.erase("openai", "personal");
+    CHECK_FALSE(credentials.read("openai", "personal"));
+    CHECK(credentials.read("openai", "guild") == "replacement-secret");
+}
+
+TEST_CASE("cloud settings persist non-secret metadata and reject unsafe identifiers") {
+    TestDirectory directory;
+    wowai::storage::LocalDatabase database{directory.path() / L"assistant.db"};
+    auto settings = database.load_settings();
+    settings.cloud_enabled = true;
+    settings.cloud_provider = "dashscope";
+    settings.cloud_model = "qwen3.5-plus";
+    settings.cloud_profile = "raid-lead";
+    settings.cloud_region = "singapore";
+    settings.cloud_resource = "workspace-42";
+    settings.cloud_session_request_limit = 5;
+    settings.cloud_daily_request_limit = 20;
+    settings.cloud_monthly_request_limit = 200;
+    REQUIRE(settings.valid());
+    database.save_settings(settings);
+    const auto reopened = database.load_settings();
+    CHECK(reopened.cloud_provider == "dashscope");
+    CHECK(reopened.cloud_model == "qwen3.5-plus");
+    CHECK(reopened.cloud_profile == "raid-lead");
+    CHECK(reopened.cloud_resource == "workspace-42");
+    CHECK(reopened.cloud_daily_request_limit == 20);
+
+    settings.cloud_profile = "../escape";
+    CHECK_FALSE(settings.valid());
+    settings.cloud_profile = "raid-lead";
+    settings.cloud_resource = "Uppercase";
+    CHECK_FALSE(settings.valid());
+    settings.cloud_resource = "workspace-42";
+    settings.cloud_region = "unknown";
+    CHECK_FALSE(settings.valid());
+}
+
+TEST_CASE("cloud master switch prevents secure session startup") {
+    TestDirectory directory;
+    wowai::storage::CredentialStore credentials{directory.path() / L"Credentials"};
+    auto settings = wowai::storage::AssistantSettings::defaults();
+    settings.cloud_enabled = false;
+    CHECK(wowai::codex::AssistantSession::from_secure_settings(settings, credentials) == nullptr);
+}
+
+TEST_CASE("cloud request audit enforces idempotency and request caps without content") {
+    TestDirectory directory;
+    wowai::storage::LocalDatabase database{directory.path() / L"assistant.db"};
+    auto settings = database.load_settings();
+    settings.cloud_enabled = true;
+    settings.cloud_provider = "xai";
+    settings.cloud_model = "grok-4.7";
+    settings.cloud_session_request_limit = 2;
+    settings.cloud_daily_request_limit = 3;
+    settings.cloud_monthly_request_limit = 4;
+    database.save_settings(settings);
+    using Authorization = wowai::storage::CloudRequestAuthorization;
+    CHECK(database.authorize_cloud_request(settings, 0, "request-one", "api.x.ai", true) ==
+          Authorization::allowed);
+    CHECK(database.authorize_cloud_request(settings, 1, "request-one", "api.x.ai", true) ==
+          Authorization::duplicate);
+    CHECK(database.authorize_cloud_request(settings, 1, "request-two", "api.x.ai", false) ==
+          Authorization::allowed);
+    CHECK(database.authorize_cloud_request(settings, 2, "request-three", "api.x.ai", false) ==
+          Authorization::session_limit);
+    CHECK(database.cloud_audit_count() == 2);
+    const auto bytes = read_binary(database.path());
+    CHECK(bytes.find("question body") == std::string::npos);
+    CHECK(bytes.find("image/png;base64") == std::string::npos);
 }
 
 TEST_CASE("temporary screenshot cleanup stays inside the application root") {

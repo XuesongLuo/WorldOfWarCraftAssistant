@@ -98,8 +98,23 @@ STEP-010 已实现锁定 App Server 的真实 stdio 启动、initialize、thread
 
 根据 ADR-017/ADR-018，面向普通玩家的主路径为
 `覆盖层 → C++ → TypeScript Host → 锁定 Codex App Server → 所选云端模型 → 覆盖层`。
-产品不要求玩家电脑安装或运行本地大模型。开发阶段必须显式配置提供方、精确模型、上传总开关
-和凭据；任一缺失都会失败关闭：
+产品不要求玩家电脑安装或运行本地大模型。STEP-021 已在托盘设置页提供统一入口：云端总开关、
+Provider、连接/目的域、精确模型或部署、profile、条件化 organization/region/workspace/resource/
+api-version、密码框 API Key、用量上限和 Mock 连接测试；任一必填项缺失都会失败关闭。
+
+当前受控接线包括 OpenAI、DeepSeek、xAI、OpenRouter、阿里云 DashScope/Qwen 和 Azure OpenAI。
+所有连接都要求 Responses/OpenResponses：锁定的 Codex App Server 0.159.2 实测拒绝 chat wire，
+因此 Anthropic Messages、Gemini `generateContent` 和 Mistral Chat 已记录但暂不启用。普通入口不接受
+任意 URL；DashScope/Azure endpoint 只由允许区域/厂商域名模板生成。新增 provider 除此前单独
+记录的 DeepSeek 外均未调用真实 API，不能据此宣称真实账号兼容已通过。
+
+API Key 按 provider/profile 存入当前用户 DPAPI，只显示配置状态与末尾最多四字符；SQLite 不存
+密钥。C++ 只向本应用启动的 Host 注入当前 key，Host 再只传给自己的 App Server，并剔除其他
+provider key。关闭云端时不启动 Host/App Server。请求在外发前受 request ID 幂等、会话/UTC
+日/月上限和停止阈值保护；失败/限流不会自动重发图片，App Server 重试为零并遵循 Retry-After
+冷却。审计只含 provider/profile/model/目的域/时间/是否含图，不记录正文、图片或凭据。
+
+开发环境回退必须另外显式开启；默认仍优先 DPAPI：
 
 当前开发机可把这些值放入被 Git 忽略的 `.env.local`，然后载入当前 PowerShell：
 
@@ -107,8 +122,8 @@ STEP-010 已实现锁定 App Server 的真实 stdio 启动、initialize、thread
 . .\scripts\Import-LocalEnvironment.ps1
 ```
 
-脚本只接受云端 provider/model/consent 和对应 API key，不显示密钥值。`.env.local` 中的真实密钥
-不得提交、复制到日志或发到聊天中。
+脚本只接受 allowlist 中的云端字段与对应 API key，不显示密钥值，并设置
+`WOWAI_DEVELOPMENT_ENV_FALLBACK=1`。`.env.local` 中的真实密钥不得提交、复制到日志或发到聊天中。
 
 ```powershell
 $env:WOWAI_NODE_BINARY = (Resolve-Path '.\.tools\node\node.exe')
@@ -120,16 +135,20 @@ $env:WOWAI_CODEX_ROOT = (Join-Path $env:LOCALAPPDATA 'WorldOfWarcraftAssistant\C
 $env:WOWAI_MODEL_PROVIDER = 'deepseek'
 $env:WOWAI_CLOUD_MODEL = 'deepseek-flash'
 $env:WOWAI_CLOUD_UPLOAD_CONSENT = '1'
+$env:WOWAI_DEVELOPMENT_ENV_FALLBACK = '1'
 $env:DEEPSEEK_API_KEY = 'development-only-key'
 ```
 
-`DEEPSEEK_API_KEY`（或选择 OpenAI 时的 `OPENAI_API_KEY`）只作为开发期临时接线；不得写入
-仓库、日志或普通配置文件。STEP-020 已提供当前 Windows 用户范围的 DPAPI 凭据保险箱；把
-开发期环境变量迁移到保险箱并最小权限注入 Host 属于 STEP-021，在此之前运行时仍读取
-`.env.local`，保险箱内容不会被误当作普通配置。
+provider 专用环境变量只作为显式开发回退；正式路径使用设置页与 DPAPI。支持的开发变量为
+`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`XAI_API_KEY`、`OPENROUTER_API_KEY`、
+`DASHSCOPE_API_KEY` 和 `AZURE_OPENAI_API_KEY`。
 DeepSeek 官方 [Responses API](https://api-docs.deepseek.com/guides/responses_api/) 说明其固定
 `base_url` 支持 Codex 所需格式，`deepseek-flash` 支持图片；其他模型只有在提供方注册表明确标记
 视觉能力后才能接收截图。
+
+完整连接策略、限制与官方依据见
+[`ADR-019`](docs/decisions/ADR-019-cloud-connection-strategies.md)，自动验证见
+[`STEP-021`](docs/test-results/STEP-021-automated-validation-2026-10-03.md)。
 
 配置 `.env.local` 后，可分别验证直接 API 和完整 Host/App Server 路径；脚本只输出状态、模型、
 用量或 provider/图片使用标记，不显示密钥：

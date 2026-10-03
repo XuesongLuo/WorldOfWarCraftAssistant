@@ -13,8 +13,8 @@ import {
 } from '../app-server/client.js';
 import { AppServerProtocolError } from '../app-server/protocol.js';
 import type { LocalModelCapabilities, LocalModelConfiguration } from '../local-model/provider.js';
-import type { CloudModelConfiguration } from '../cloud-model/provider.js';
-import { classifyCloudModelError, CodexRuntimeFailure } from './errors.js';
+import { isCloudModelProvider, type CloudModelConfiguration } from '../cloud-model/provider.js';
+import { classifyCloudModelError, CodexRuntimeFailure, retryAfterMilliseconds } from './errors.js';
 import type { ICodexRuntime } from './mock-runtime.js';
 
 const MAX_SAFE_ANSWER_CHARACTERS = 8_000;
@@ -45,6 +45,7 @@ type CapabilityProbe = () => Promise<LocalModelCapabilities>;
 export class AppServerCodexRuntime implements ICodexRuntime {
   private readonly conversations = new Map<string, string>();
   private initializeTask: Promise<void> | undefined;
+  private rateLimitedUntil = 0;
 
   public constructor(
     private readonly client: AppServerClient,
@@ -57,9 +58,16 @@ export class AppServerCodexRuntime implements ICodexRuntime {
 
   public async answer(request: AssistantRequest, signal: AbortSignal): Promise<AssistantResponse> {
     const localCapabilities = await this.validateProvider(request);
-    const cloudRequest =
-      request.runtime.provider === 'openai' || request.runtime.provider === 'deepseek';
+    const cloudRequest = isCloudModelProvider(request.runtime.provider);
     if (cloudRequest) this.validateCloudProvider(request);
+    if (cloudRequest && Date.now() < this.rateLimitedUntil) {
+      const waitSeconds = Math.max(1, Math.ceil((this.rateLimitedUntil - Date.now()) / 1_000));
+      throw new CodexRuntimeFailure({
+        code: 'AI_RATE_LIMITED',
+        message: `The provider requested backoff. Wait ${String(waitSeconds)} seconds before retrying.`,
+        retryable: true,
+      });
+    }
     if (request.images.length > 0 && cloudRequest && this.cloudModel?.vision !== true) {
       throw new CodexRuntimeFailure({
         code: 'MODEL_CAPABILITY_MISSING',
@@ -98,7 +106,14 @@ export class AppServerCodexRuntime implements ICodexRuntime {
       if (signal.aborted) throw error;
       if (cloudRequest) {
         const classified = classifyCloudModelError(error);
-        if (classified !== undefined) throw new CodexRuntimeFailure(classified);
+        if (classified !== undefined) {
+          if (classified.code === 'AI_RATE_LIMITED') {
+            const delay = retryAfterMilliseconds(error);
+            this.rateLimitedUntil = Date.now() + delay;
+            classified.message = `The provider requested backoff. Wait ${String(Math.ceil(delay / 1_000))} seconds before retrying.`;
+          }
+          throw new CodexRuntimeFailure(classified);
+        }
       }
       if (error instanceof AppServerTimeoutError) {
         throw new CodexRuntimeFailure({
@@ -270,7 +285,7 @@ export class AppServerCodexRuntime implements ICodexRuntime {
     const provider =
       request.runtime.provider === 'local-ollama'
         ? this.localModel?.appServerProviderId
-        : request.runtime.provider === 'openai' || request.runtime.provider === 'deepseek'
+        : isCloudModelProvider(request.runtime.provider)
           ? this.cloudModel?.appServerProviderId
           : request.runtime.provider;
     const threadId = await this.client.startThread(this.workspace, request.runtime.model, provider);
@@ -306,7 +321,7 @@ export class AppServerCodexRuntime implements ICodexRuntime {
     ) {
       throw new CodexRuntimeFailure({
         code: 'MODEL_PROVIDER_UNAVAILABLE',
-        message: 'The request does not match the explicitly enabled OpenAI cloud model.',
+        message: 'The request does not match the explicitly enabled cloud provider and model.',
         retryable: false,
       });
     }
