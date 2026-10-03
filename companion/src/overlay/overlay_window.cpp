@@ -36,10 +36,10 @@ constexpr wchar_t overlay_uri[] = L"https://wowai-overlay.invalid/index.html";
 constexpr wchar_t chat_html[] = LR"HTML(<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <style>
-:root{color-scheme:dark;font:16px/1.45 "Segoe UI",sans-serif}*{box-sizing:border-box}
+:root{color-scheme:dark;font:var(--wowai-font-size,16px)/1.45 "Segoe UI",sans-serif;--wowai-opacity:.92}*{box-sizing:border-box}
 html,body{width:100%;height:100%;margin:0;background:transparent;color:#f4f1e8}
-body{padding:10px}.panel{height:100%;display:grid;grid-template-rows:auto 1fr auto;overflow:hidden;
-background:rgba(12,16,24,.92);border:1px solid rgba(218,174,92,.8);border-radius:14px;
+body{padding:10px}.panel{height:100%;display:grid;grid-template-rows:auto 1fr auto auto auto auto;overflow:hidden;
+background:rgba(12,16,24,var(--wowai-opacity));border:1px solid rgba(218,174,92,.8);border-radius:14px;
 box-shadow:0 12px 36px rgba(0,0,0,.45)}header{display:flex;align-items:center;gap:8px;padding:12px 14px;
 border-bottom:1px solid rgba(255,255,255,.12)}h1{font-size:15px;margin:0;flex:1;color:#ffd98a}
 #mode{font-size:12px;color:#b9c2d0}button{font:inherit;color:inherit;background:#28364c;border:1px solid #526783;
@@ -47,26 +47,40 @@ border-radius:8px;padding:7px 10px}button:hover,button:focus-visible{background:
 #messages{overflow:auto;padding:14px;scrollbar-color:#65758a transparent}.message{margin:0 0 12px;padding:10px 12px;
 border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere}.assistant{background:#1d2939}.user{background:#46371f}
 .message a{color:#ffd98a}
-.status{font-size:13px;color:#bac5d3;padding:6px 14px 0}form{display:grid;grid-template-columns:1fr auto;gap:8px;padding:10px 14px 14px}
+.requestbar{display:flex;align-items:center;gap:6px;padding:6px 14px 0}.status{font-size:13px;color:#bac5d3;flex:1}.requestbar button{font-size:12px;padding:5px 8px}.hidden{display:none}form{display:grid;grid-template-columns:1fr auto;gap:8px;padding:10px 14px 14px}
 textarea{resize:none;min-height:46px;max-height:120px;color:#fff;background:#111a27;border:1px solid #526783;
 border-radius:8px;padding:10px;font:inherit}textarea:focus{outline:2px solid #ffd98a}#send{background:#8a5b16}
+.vision{display:flex;gap:6px;align-items:center;padding:7px 14px;border-top:1px solid rgba(255,255,255,.1)}
+.vision button{font-size:12px;padding:5px 7px}.preview{display:none;align-items:center;gap:8px}.preview img{width:74px;height:48px;object-fit:cover;border:1px solid #526783}.preview.active{display:flex}.observation{font-size:12px;color:#8fe6b5;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (prefers-contrast:more){.panel,button,textarea{border-width:2px}.panel{background:#000}}
 </style></head><body><main class="panel" aria-label="魔兽世界 AI 助手聊天">
-<header><h1>WoW AI 助手 · 本地 PoC</h1><span id="mode">交互模式</span>
+<header><h1>WoW AI 助手 · 云端 PoC</h1><span id="mode">交互模式</span>
 <button id="pass" type="button" title="切换后鼠标将穿透覆盖层">鼠标穿透</button></header>
-<section id="messages" role="log" aria-live="polite"><p class="message assistant">覆盖层已独立运行。配置本地 Ollama 与 Codex Host 后即可进行纯本地文字问答。<a href="https://support.blizzard.com/">暴雪支持</a></p></section>
-<div id="status" class="status" role="status">等待输入</div>
+<section id="messages" role="log" aria-live="polite"><p class="message assistant">覆盖层已独立运行。问题会发送到明确启用的云端模型；截图只在逐次确认后上传到同一提供方。持续场景观察仍仅在本机处理。<a href="https://support.blizzard.com/">暴雪支持</a></p></section>
+<div class="vision" aria-label="视觉控制"><button id="capture" type="button">附加截图</button><label><input id="maskChat" type="checkbox" checked>遮挡聊天区</label><label><input id="selectedRegion" type="checkbox">仅校准区域</label><button id="scene" type="button">场景感知</button><button id="coach" type="button">实战教学</button><button id="pause" type="button">暂停观察</button><span id="observation" class="observation">观察已关闭</span></div>
+<div id="preview" class="vision preview"><img id="previewImage" alt="待确认的 WoW 截图预览"><span id="previewMeta"></span><button id="confirm" type="button">确认附加</button><button id="discard" type="button">丢弃</button></div>
+<div class="requestbar"><div id="status" class="status" role="status">等待输入</div><button id="cancel" class="hidden" type="button">取消</button><button id="retry" class="hidden" type="button">重试</button></div>
 <form id="form"><textarea id="input" maxlength="4000" aria-label="问题" placeholder="输入问题…"></textarea>
 <button id="send" type="submit">发送</button></form></main>
 <script>
 const bridge=(type,payload={})=>chrome.webview.postMessage(JSON.stringify({version:1,type,payload}));
-const messages=document.querySelector('#messages'),input=document.querySelector('#input'),status=document.querySelector('#status');
+const messages=document.querySelector('#messages'),input=document.querySelector('#input'),status=document.querySelector('#status'),send=document.querySelector('#send'),cancel=document.querySelector('#cancel'),retry=document.querySelector('#retry');let lastQuestion='';
+const preview=document.querySelector('#preview'),previewImage=document.querySelector('#previewImage'),previewMeta=document.querySelector('#previewMeta'),observation=document.querySelector('#observation');
 function append(kind,text){const p=document.createElement('p');p.className='message '+kind;p.textContent=text;messages.append(p);messages.scrollTop=messages.scrollHeight}
-document.querySelector('#form').addEventListener('submit',e=>{e.preventDefault();const text=input.value.trim();if(!text){status.textContent='请输入内容';input.focus();return}append('user',text);bridge('send_message',{text});input.value='';status.textContent='正在请求本地模型…'});
+function submitQuestion(text){lastQuestion=text;append('user',text);bridge('send_message',{text});input.value=''}
+document.querySelector('#form').addEventListener('submit',e=>{e.preventDefault();const text=input.value.trim();if(!text){status.textContent='请输入内容';input.focus();return}submitQuestion(text)});
 input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.querySelector('#form').requestSubmit()}});
 document.querySelector('#pass').addEventListener('click',()=>bridge('set_interaction',{enabled:false}));
+cancel.addEventListener('click',()=>bridge('cancel_request'));
+retry.addEventListener('click',()=>{if(lastQuestion)submitQuestion(lastQuestion)});
+document.querySelector('#capture').addEventListener('click',()=>bridge('capture_screenshot',{maskChat:document.querySelector('#maskChat').checked,selectedRegion:document.querySelector('#selectedRegion').checked}));
+document.querySelector('#confirm').addEventListener('click',()=>{bridge('confirm_screenshot');previewMeta.textContent=previewMeta.textContent.split(' · ')[0]+' · 已确认上传至所选提供方'});
+document.querySelector('#discard').addEventListener('click',()=>bridge('discard_screenshot'));
+document.querySelector('#scene').addEventListener('click',()=>bridge('set_observation',{mode:'scene'}));
+document.querySelector('#coach').addEventListener('click',()=>bridge('set_observation',{mode:'coaching'}));
+document.querySelector('#pause').addEventListener('click',()=>bridge('pause_observation'));
 document.addEventListener('click',e=>{const link=e.target.closest('a[href]');if(!link)return;e.preventDefault();bridge('open_external',{url:link.href})});
-chrome.webview.addEventListener('message',e=>{const m=e.data;if(!m||m.version!==1)return;if(m.type==='assistant_message'){append('assistant',m.text);status.textContent='本地回复完成'}else if(m.type==='status'){status.textContent=m.text}});
+chrome.webview.addEventListener('message',e=>{const m=e.data;if(!m||m.version!==1)return;if(m.type==='assistant_message'){append('assistant',m.text)}else if(m.type==='request_state'){const active=m.phase==='submitting'||m.phase==='cancelling';status.textContent=(m.errorCode?`[${m.errorCode}] `:'')+m.text+(m.action?` 操作：${m.action}`:'');status.setAttribute('role',m.phase==='error'?'alert':'status');send.disabled=active;input.disabled=active;cancel.classList.toggle('hidden',!active);cancel.disabled=m.phase==='cancelling';retry.classList.toggle('hidden',!(m.phase==='error'&&m.retryable));if(!active)input.focus()}else if(m.type==='status'){status.textContent=m.text}else if(m.type==='appearance'){document.documentElement.style.setProperty('--wowai-opacity',String(Math.max(20,Math.min(100,m.opacity))/100));document.documentElement.style.setProperty('--wowai-font-size',`${Math.max(12,Math.min(28,m.fontSize))}px`)}else if(m.type==='screenshot_preview'){previewImage.src=m.dataUrl;previewMeta.textContent=`${m.width}×${m.height} · 尚未确认上传`;preview.classList.add('active');status.textContent='请检查截图；点击确认表示同意上传至当前配置的云端提供方，仅用于下一次图片问题'}else if(m.type==='screenshot_cleared'){previewImage.removeAttribute('src');preview.classList.remove('active')}else if(m.type==='observation'){observation.textContent=`${m.mode} · ${m.scene} · ${Math.round(m.confidence*100)}% · ${m.source}`;observation.title=`${m.capturedAt} · ${m.reason}`}});
 bridge('ready');
 </script></body></html>)HTML";
 
@@ -190,6 +204,9 @@ struct OverlayWindow::State final {
     StatusSink status_sink;
     MessageSink message_sink;
     bool interaction_enabled{true};
+    bool user_visible{true};
+    std::uint32_t opacity_percent{92};
+    std::uint32_t font_size_px{16};
     bool webview_initialized{};
     bool document_ready{};
     bool shutting_down{};
@@ -272,6 +289,9 @@ OverlayWindow::OverlayWindow(const HINSTANCE instance, StatusSink status_sink,
     if (state_->window == nullptr) {
         throw_last_error("CreateWindowExW for overlay failed");
     }
+    // The overlay is a separate top-level window, but exclusion remains a defense in depth for
+    // future display/region capture paths and prevents recursive assistant UI in screenshots.
+    ::SetWindowDisplayAffinity(state_->window, WDA_EXCLUDEFROMCAPTURE);
 
     D3D_FEATURE_LEVEL feature_level{};
     THROW_IF_FAILED(::D3D11CreateDevice(
@@ -467,6 +487,9 @@ OverlayWindow::OverlayWindow(const HINSTANCE instance, StatusSink status_sink,
                                                 switch (parsed.message->kind) {
                                                 case WebMessageKind::ready:
                                                     state->document_ready = true;
+                                                    state->post_json(make_appearance_message(
+                                                        state->opacity_percent,
+                                                        state->font_size_px));
                                                     state->post_json(make_status_message(
                                                         "覆盖层就绪；插件不是必需项。"));
                                                     state->report(
@@ -477,15 +500,20 @@ OverlayWindow::OverlayWindow(const HINSTANCE instance, StatusSink status_sink,
                                                 case WebMessageKind::send_message:
                                                     if (!state->message_sink) {
                                                         state->post_json(make_status_message(
-                                                            "本地模型尚未配置。请配置 Host、Ollama "
-                                                            "端点和模型后重试。",
+                                                            "云端模型尚未配置。请配置 Host、"
+                                                            "模型、上传同意和凭据后重试。",
                                                             true));
                                                         break;
                                                     }
                                                     state->post_json(make_status_message(
-                                                        "正在通过 Codex 请求本地模型…"));
-                                                    state->message_sink(
-                                                        std::move(parsed.message->text));
+                                                        "正在通过 Codex 请求所选云端模型…"));
+                                                    state->message_sink(std::move(*parsed.message));
+                                                    break;
+                                                case WebMessageKind::cancel_request:
+                                                    if (state->message_sink) {
+                                                        state->message_sink(
+                                                            std::move(*parsed.message));
+                                                    }
                                                     break;
                                                 case WebMessageKind::set_interaction:
                                                     ::PostMessageW(state->window, WM_APP + 20,
@@ -499,6 +527,16 @@ OverlayWindow::OverlayWindow(const HINSTANCE instance, StatusSink status_sink,
                                                                      parsed.message->text.end())
                                                             .c_str(),
                                                         nullptr, nullptr, SW_SHOWNORMAL);
+                                                    break;
+                                                case WebMessageKind::capture_screenshot:
+                                                case WebMessageKind::confirm_screenshot:
+                                                case WebMessageKind::discard_screenshot:
+                                                case WebMessageKind::set_observation:
+                                                case WebMessageKind::pause_observation:
+                                                    if (state->message_sink) {
+                                                        state->message_sink(
+                                                            std::move(*parsed.message));
+                                                    }
                                                     break;
                                                 }
                                                 return S_OK;
@@ -539,8 +577,8 @@ OverlayWindow::~OverlayWindow() {
         }
         if (state_->window != nullptr) {
             MSG pending{};
-            while (::PeekMessageW(&pending, state_->window, WM_APP + 21, WM_APP + 21,
-                                  PM_REMOVE) != FALSE) {
+            while (::PeekMessageW(&pending, state_->window, WM_APP + 21, WM_APP + 21, PM_REMOVE) !=
+                   FALSE) {
                 delete reinterpret_cast<std::string*>(pending.lParam);
             }
             ::DestroyWindow(state_->window);
@@ -584,7 +622,7 @@ void OverlayWindow::tick() noexcept {
                                        foreground == state_->window,
                                        state_->interaction_enabled,
                                        client_usable};
-    if (!state_->webview_initialized) {
+    if (!state_->user_visible || !state_->webview_initialized) {
         if (state_->controller) {
             state_->controller->put_IsVisible(FALSE);
         }
@@ -646,12 +684,45 @@ void OverlayWindow::toggle_interaction() noexcept {
     set_interaction_enabled(!interaction_enabled());
 }
 
+void OverlayWindow::toggle_visibility() noexcept { set_user_visible(!user_visible()); }
+
+void OverlayWindow::set_user_visible(const bool visible) noexcept {
+    if (!state_) {
+        return;
+    }
+    state_->user_visible = visible;
+    if (visible) {
+        set_interaction_enabled(true);
+        tick();
+        if (state_->window != nullptr && ::IsWindowVisible(state_->window) != FALSE) {
+            ::SetForegroundWindow(state_->window);
+        }
+    } else {
+        if (state_->controller) {
+            state_->controller->put_IsVisible(FALSE);
+        }
+        ::ShowWindow(state_->window, SW_HIDE);
+    }
+}
+
+void OverlayWindow::apply_appearance(const std::uint32_t opacity_percent,
+                                     const std::uint32_t font_size_px) noexcept {
+    if (!state_) {
+        return;
+    }
+    state_->opacity_percent = std::clamp<std::uint32_t>(opacity_percent, 20, 100);
+    state_->font_size_px = std::clamp<std::uint32_t>(font_size_px, 12, 28);
+    if (state_->document_ready) {
+        state_->post_json(make_appearance_message(state_->opacity_percent, state_->font_size_px));
+    }
+}
+
 void OverlayWindow::post_assistant_message(std::string text) noexcept {
     if (!state_ || state_->window == nullptr) {
         return;
     }
-    auto json = std::unique_ptr<std::string>{
-        new (std::nothrow) std::string{make_assistant_message(text)}};
+    auto json =
+        std::unique_ptr<std::string>{new (std::nothrow) std::string{make_assistant_message(text)}};
     if (!json || ::PostMessageW(state_->window, WM_APP + 21, 0,
                                 reinterpret_cast<LPARAM>(json.get())) == FALSE) {
         return;
@@ -663,13 +734,75 @@ void OverlayWindow::post_status(std::string text, const bool error) noexcept {
     if (!state_ || state_->window == nullptr) {
         return;
     }
-    auto json = std::unique_ptr<std::string>{
-        new (std::nothrow) std::string{make_status_message(text, error)}};
+    auto json = std::unique_ptr<std::string>{new (std::nothrow)
+                                                 std::string{make_status_message(text, error)}};
     if (!json || ::PostMessageW(state_->window, WM_APP + 21, 0,
                                 reinterpret_cast<LPARAM>(json.get())) == FALSE) {
         return;
     }
     static_cast<void>(json.release());
+}
+
+void OverlayWindow::post_request_state(std::string phase, std::string text, std::string error_code,
+                                       const bool retryable, std::string action) noexcept {
+    if (!state_ || state_->window == nullptr) {
+        return;
+    }
+    auto json = std::unique_ptr<std::string>{new (std::nothrow) std::string{
+        make_request_state_message(phase, text, error_code, retryable, action)}};
+    if (!json || ::PostMessageW(state_->window, WM_APP + 21, 0,
+                                reinterpret_cast<LPARAM>(json.get())) == FALSE) {
+        return;
+    }
+    static_cast<void>(json.release());
+}
+
+void OverlayWindow::post_screenshot_preview(std::string png_base64, const std::int32_t width,
+                                            const std::int32_t height,
+                                            const bool privacy_mask_applied) noexcept {
+    if (!state_ || state_->window == nullptr) {
+        return;
+    }
+    auto json = std::make_unique<std::string>(
+        make_screenshot_preview(png_base64, width, height, privacy_mask_applied));
+    if (::PostMessageW(state_->window, WM_APP + 21, 0, reinterpret_cast<LPARAM>(json.get())) !=
+        FALSE) {
+        json.release();
+    }
+}
+
+void OverlayWindow::clear_screenshot_preview() noexcept {
+    if (!state_ || state_->window == nullptr) {
+        return;
+    }
+    auto json = std::make_unique<std::string>(make_screenshot_cleared());
+    if (::PostMessageW(state_->window, WM_APP + 21, 0, reinterpret_cast<LPARAM>(json.get())) !=
+        FALSE) {
+        json.release();
+    }
+}
+
+void OverlayWindow::post_observation(std::string mode, std::string scene, std::string captured_at,
+                                     const double confidence, std::string reason) noexcept {
+    if (!state_ || state_->window == nullptr) {
+        return;
+    }
+    auto json = std::make_unique<std::string>(
+        make_observation_message(mode, scene, captured_at, confidence, reason));
+    if (::PostMessageW(state_->window, WM_APP + 21, 0, reinterpret_cast<LPARAM>(json.get())) !=
+        FALSE) {
+        json.release();
+    }
+}
+
+bool OverlayWindow::visible() const noexcept {
+    return state_ && state_->window != nullptr && ::IsWindowVisible(state_->window) != FALSE;
+}
+
+bool OverlayWindow::user_visible() const noexcept { return state_ && state_->user_visible; }
+
+bool OverlayWindow::owns_foreground() const noexcept {
+    return state_ && state_->window != nullptr && ::GetForegroundWindow() == state_->window;
 }
 
 bool OverlayWindow::interaction_enabled() const noexcept {

@@ -1,13 +1,29 @@
 import { PassThrough } from 'node:stream';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { AppServerClient } from '../src/app-server/client.js';
 import { AppServerCodexRuntime } from '../src/runtime/app-server-runtime.js';
+import { CodexRuntimeFailure } from '../src/runtime/errors.js';
 import type { AssistantRequest } from '../src/protocol/types.js';
 import { assistantRequestSchema } from '../src/protocol/validation.js';
 
-type Scenario = 'complete' | 'structured' | 'malformed' | 'approval' | 'unknown' | 'wait';
+type Scenario =
+  | 'complete'
+  | 'structured'
+  | 'malformed'
+  | 'warning'
+  | 'commentary-before-final'
+  | 'approval'
+  | 'unknown'
+  | 'auth-error'
+  | 'exit'
+  | 'delayed-turn-start'
+  | 'wait';
 
 const request = assistantRequestSchema.parse({
   schemaVersion: '2.0',
@@ -91,6 +107,12 @@ class ScriptedAppServer {
         return;
       case 'turn/start':
         this.activeThread = (message.params as { threadId: string }).threadId;
+        if (this.scenario === 'delayed-turn-start') {
+          setTimeout(() => {
+            this.send({ id, result: { turn: { id: 'turn-1', status: 'inProgress' } } });
+          }, 20);
+          return;
+        }
         this.send({ id, result: { turn: { id: 'turn-1', status: 'inProgress' } } });
         queueMicrotask(() => {
           this.afterTurnStart();
@@ -109,8 +131,14 @@ class ScriptedAppServer {
     if (
       this.scenario === 'complete' ||
       this.scenario === 'structured' ||
-      this.scenario === 'malformed'
+      this.scenario === 'malformed' ||
+      this.scenario === 'warning' ||
+      this.scenario === 'commentary-before-final'
     ) {
+      if (this.scenario === 'warning') {
+        this.send({ method: 'warning', params: { message: 'configuration warning' } });
+        this.send({ method: 'account/rateLimits/updated', params: { rateLimits: null } });
+      }
       const text =
         this.scenario === 'structured'
           ? JSON.stringify({
@@ -123,6 +151,25 @@ class ScriptedAppServer {
           : this.scenario === 'malformed'
             ? '{"summary":'
             : '安全回答';
+      if (this.scenario === 'commentary-before-final') {
+        this.send({
+          method: 'item/agentMessage/delta',
+          params: {
+            threadId: this.activeThread,
+            turnId: 'turn-1',
+            itemId: 'commentary-1',
+            delta: '先检查一下。',
+          },
+        });
+        this.send({
+          method: 'item/completed',
+          params: {
+            threadId: this.activeThread,
+            turnId: 'turn-1',
+            item: { type: 'agentMessage', text: '先检查一下。', phase: 'commentary' },
+          },
+        });
+      }
       this.send({
         method: 'item/agentMessage/delta',
         params: {
@@ -130,6 +177,14 @@ class ScriptedAppServer {
           turnId: 'turn-1',
           itemId: 'item-1',
           delta: text,
+        },
+      });
+      this.send({
+        method: 'item/completed',
+        params: {
+          threadId: this.activeThread,
+          turnId: 'turn-1',
+          item: { type: 'agentMessage', text, phase: 'final_answer' },
         },
       });
       this.send({
@@ -147,6 +202,20 @@ class ScriptedAppServer {
       });
     } else if (this.scenario === 'unknown') {
       this.send({ method: 'future/unsafeEvent', params: { turnId: 'turn-1' } });
+    } else if (this.scenario === 'auth-error') {
+      this.send({
+        method: 'turn/completed',
+        params: {
+          threadId: this.activeThread,
+          turn: {
+            id: 'turn-1',
+            status: 'failed',
+            error: { status: 401, message: 'Unauthorized: invalid API key sk-never-log-this' },
+          },
+        },
+      });
+    } else if (this.scenario === 'exit') {
+      this.input.end();
     }
   }
 
@@ -159,6 +228,9 @@ function createRuntime(
   scenario: Scenario,
   serverRequestMethod?: string,
   local = false,
+  vision = false,
+  visionTemp?: string,
+  cloud: false | 'openai' | 'deepseek' = false,
 ): { server: ScriptedAppServer; runtime: AppServerCodexRuntime } {
   const server = new ScriptedAppServer(scenario, serverRequestMethod);
   const client = new AppServerClient({
@@ -187,9 +259,30 @@ function createRuntime(
               model: 'qwen3:8b',
               version: '0.12.3',
               text: true,
-              vision: false,
+              vision,
               tools: true,
             })
+        : undefined,
+      visionTemp,
+      cloud
+        ? cloud === 'deepseek'
+          ? {
+              provider: 'deepseek',
+              appServerProviderId: 'wowai_deepseek',
+              displayName: 'DeepSeek',
+              model: 'deepseek-flash',
+              baseUrl: new URL('https://api.deepseek.com'),
+              credentialEnvironmentKey: 'DEEPSEEK_API_KEY',
+              vision: true,
+            }
+          : {
+              provider: 'openai',
+              appServerProviderId: 'openai',
+              displayName: 'OpenAI',
+              model: 'vision-model-fixture',
+              credentialEnvironmentKey: 'OPENAI_API_KEY',
+              vision: true,
+            }
         : undefined,
     ),
   };
@@ -281,6 +374,62 @@ describe('locked Codex App Server adapter', () => {
     await runtime.close();
   });
 
+  it('maps an unexpected App Server exit to a recoverable Host failure', async () => {
+    const { server, runtime } = createRuntime('exit');
+    await expect(runtime.answer(request, new AbortController().signal)).rejects.toMatchObject({
+      assistantError: { code: 'CODEX_START_FAILED', retryable: true },
+    });
+    server.close();
+    await runtime.close();
+  });
+
+  it('classifies cloud authentication errors without exposing provider diagnostics', async () => {
+    const { server, runtime } = createRuntime(
+      'auth-error',
+      undefined,
+      false,
+      false,
+      undefined,
+      'deepseek',
+    );
+    const cloudRequest = {
+      ...request,
+      runtime: {
+        engine: 'codex' as const,
+        provider: 'deepseek' as const,
+        model: 'deepseek-flash',
+        allowCloudUpload: true,
+      },
+    } satisfies AssistantRequest;
+    try {
+      await runtime.answer(cloudRequest, new AbortController().signal);
+      expect.fail('expected authentication failure');
+    } catch (error) {
+      expect(error).toBeInstanceOf(CodexRuntimeFailure);
+      if (!(error instanceof CodexRuntimeFailure)) throw error;
+      expect(error.assistantError).toMatchObject({ code: 'AI_AUTH_FAILED', retryable: false });
+      expect(error.assistantError.message).not.toContain('sk-never-log-this');
+    }
+    server.close();
+    await runtime.close();
+  });
+
+  it('accepts locked informational notifications without failing the turn', async () => {
+    const { server, runtime } = createRuntime('warning');
+    const response = await runtime.answer(request, new AbortController().signal);
+    expect(response.answer.summary).toBe('安全回答');
+    server.close();
+    await runtime.close();
+  });
+
+  it('uses only the final answer when a turn emits commentary first', async () => {
+    const { server, runtime } = createRuntime('commentary-before-final');
+    const response = await runtime.answer(request, new AbortController().signal);
+    expect(response.answer.summary).toBe('安全回答');
+    server.close();
+    await runtime.close();
+  });
+
   it('interrupts an active turn after cancellation and emits no answer', async () => {
     const { server, runtime } = createRuntime('wait');
     const controller = new AbortController();
@@ -289,6 +438,19 @@ describe('locked Codex App Server adapter', () => {
     controller.abort(new Error('cancelled'));
 
     await expect(answer).rejects.toThrow('cancelled');
+    await waitUntil(() => server.received.some((message) => message.method === 'turn/interrupt'));
+    server.close();
+    await runtime.close();
+  });
+
+  it('interrupts a turn whose start response arrives after cancellation', async () => {
+    const { server, runtime } = createRuntime('delayed-turn-start');
+    const controller = new AbortController();
+    const answer = runtime.answer(request, controller.signal);
+    await waitUntil(() => server.received.some((message) => message.method === 'turn/start'));
+    controller.abort(new Error('cancelled before turn id'));
+
+    await expect(answer).rejects.toThrow('cancelled before turn id');
     await waitUntil(() => server.received.some((message) => message.method === 'turn/interrupt'));
     server.close();
     await runtime.close();
@@ -304,6 +466,7 @@ describe('locked Codex App Server adapter', () => {
           mimeType: 'image/png',
           captureScope: 'selected-region',
           sha256: 'a'.repeat(64),
+          dataBase64: 'iVBORw0KGgo=',
           privacyMaskApplied: true,
           userConfirmed: true,
         },
@@ -311,6 +474,82 @@ describe('locked Codex App Server adapter', () => {
     } as AssistantRequest;
     await expect(runtime.answer(withImage, new AbortController().signal)).rejects.toMatchObject({
       assistantError: { code: 'MODEL_CAPABILITY_MISSING' },
+    });
+    expect(server.threadStarts).toBe(0);
+    server.close();
+    await runtime.close();
+  });
+
+  it('passes only a confirmed consented cloud image and cleans the temporary copy', async () => {
+    const visionTemp = await mkdtemp(join(tmpdir(), 'wowai-vision-test-'));
+    const { server, runtime } = createRuntime(
+      'structured',
+      undefined,
+      false,
+      false,
+      visionTemp,
+      'deepseek',
+    );
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+    const withImage = {
+      ...request,
+      images: [
+        {
+          id: '44444444-4444-4444-8444-444444444444',
+          mimeType: 'image/png' as const,
+          captureScope: 'wow-window' as const,
+          sha256: createHash('sha256').update(png).digest('hex'),
+          dataBase64: png.toString('base64'),
+          privacyMaskApplied: true,
+          userConfirmed: true as const,
+          uploadDestination: 'deepseek' as const,
+          uploadPurpose: 'visual-question' as const,
+          uploadConfirmedAt: '2026-10-02T12:00:01Z',
+          consentNoticeVersion: 1 as const,
+        },
+      ],
+      runtime: {
+        engine: 'codex' as const,
+        provider: 'deepseek' as const,
+        model: 'deepseek-flash',
+        allowCloudUpload: true,
+      },
+    } satisfies AssistantRequest;
+
+    const response = await runtime.answer(withImage, new AbortController().signal);
+    expect(response.usage.imageUsed).toBe(true);
+    const turn = server.received.find((message) => message.method === 'turn/start');
+    expect(turn?.params).toMatchObject({
+      input: [{ type: 'text' }, { type: 'localImage', detail: 'auto' }],
+    });
+    const thread = server.received.find((message) => message.method === 'thread/start');
+    expect(thread?.params).toMatchObject({
+      model: 'deepseek-flash',
+      modelProvider: 'wowai_deepseek',
+    });
+    expect(await readdir(visionTemp)).toEqual([]);
+    await runtime.close();
+    server.close();
+    await rm(visionTemp, { recursive: true, force: true });
+  });
+
+  it('rejects a cloud request without matching explicit configuration', async () => {
+    const { server, runtime } = createRuntime('structured');
+    await expect(
+      runtime.answer(
+        {
+          ...request,
+          runtime: {
+            engine: 'codex',
+            provider: 'openai',
+            model: 'vision-model-fixture',
+            allowCloudUpload: true,
+          },
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      assistantError: { code: 'MODEL_PROVIDER_UNAVAILABLE', retryable: false },
     });
     expect(server.threadStarts).toBe(0);
     server.close();

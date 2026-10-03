@@ -134,6 +134,7 @@ void HostProcess::write_line(const std::string_view line) {
     }
     std::string framed(line);
     framed.push_back('\n');
+    std::scoped_lock lock(stdin_mutex_);
     std::size_t offset = 0;
     while (offset < framed.size()) {
         DWORD written{};
@@ -148,9 +149,13 @@ void HostProcess::write_line(const std::string_view line) {
     }
 }
 
-HostReadResult HostProcess::read_line(const std::chrono::milliseconds timeout) {
+HostReadResult HostProcess::read_line(const std::chrono::milliseconds timeout,
+                                      const std::stop_token stop_token) {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     while (true) {
+        if (stop_token.stop_requested()) {
+            return {HostReadStatus::cancelled, {}, STILL_ACTIVE};
+        }
         if (const auto newline = stdout_buffer_.find('\n'); newline != std::string::npos) {
             std::string line = stdout_buffer_.substr(0, newline);
             stdout_buffer_.erase(0, newline + 1);

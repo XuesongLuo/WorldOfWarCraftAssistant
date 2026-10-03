@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <stop_token>
 
 #include <windows.h>
 
@@ -85,6 +86,17 @@ TEST_CASE("Host process reports timeout and crash independently", "[codex][proce
         wowai::codex::HostProcess process(fixture(L"--crash"));
         REQUIRE(process.read_line(1s).status == wowai::codex::HostReadStatus::exited);
     }
+}
+
+TEST_CASE("Host process read can be cancelled without terminating the owned process",
+          "[codex][process]") {
+    wowai::codex::HostProcess process(fixture(L"--silent"));
+    process.write_line("wait");
+    std::stop_source stop;
+    stop.request_stop();
+    CHECK(process.read_line(1s, stop.get_token()).status ==
+          wowai::codex::HostReadStatus::cancelled);
+    CHECK(process.running());
 }
 
 TEST_CASE("closing the Host job terminates descendants", "[codex][process]") {

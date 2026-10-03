@@ -6,6 +6,16 @@ local Bridge = ns.Bridge
 Bridge.PROTOCOL_VERSION = "1"
 Bridge.MAX_PAYLOAD_BYTES = 512
 Bridge.COALESCE_SECONDS = 0.1
+Bridge.SOURCE_PLUGIN_PUBLIC = 1
+
+local FIELD_BITS = {
+    class = 0x00000001, classId = 0x00000002, specialization = 0x00000004,
+    specializationId = 0x00000008, level = 0x00000010, zone = 0x00000020,
+    mapId = 0x00000040, activity = 0x00000080, encounterId = 0x00000100,
+    achievementId = 0x00000200, criteria = 0x00000400, event = 0x00000800,
+    skills = 0x00001000, talents = 0x00002000, actionSlots = 0x00004000,
+    keyBindings = 0x00008000, unavailable = 0x80000000,
+}
 
 local PALETTE = {
     { 0.05, 0.05, 0.05, 1 }, { 0.8, 0.05, 0.05, 1 },
@@ -29,13 +39,32 @@ local function serialize(snapshot)
     for key, value in pairs(snapshot) do
         local valueType = type(value)
         if valueType == "string" then
-            table.insert(fields, key .. "=" .. percentEncode(value))
+            table.insert(fields, { key = key, value = key .. "=" .. percentEncode(value) })
         elseif valueType == "number" then
-            table.insert(fields, key .. "=" .. string.format("%d", value))
+            table.insert(fields, { key = key, value = key .. "=" .. string.format("%d", value) })
         end
     end
-    table.sort(fields)
-    return table.concat(fields, "&")
+    table.sort(fields, function(left, right)
+        return left.key < right.key
+    end)
+    local accepted = {}
+    local transmitted = {}
+    local omitted = {}
+    local bitmap = 0
+    for _, field in ipairs(fields) do
+        local separator = #accepted == 0 and 0 or 1
+        if FIELD_BITS[field.key] and #table.concat(accepted, "&") + separator + #field.value <= Bridge.MAX_PAYLOAD_BYTES then
+            table.insert(accepted, field.value)
+            bitmap = bit.bor(bitmap, FIELD_BITS[field.key])
+            transmitted[field.key] = snapshot[field.key]
+        elseif FIELD_BITS[field.key] then
+            table.insert(omitted, field.key)
+        end
+    end
+    if #omitted > 0 then
+        transmitted.truncated = table.concat(omitted, ",")
+    end
+    return table.concat(accepted, "&"), bitmap, transmitted
 end
 
 local function crc32(text)
@@ -80,10 +109,29 @@ function Bridge:Initialize(parent)
         "PLAYER_LEVEL_UP",
         "PLAYER_SPECIALIZATION_CHANGED",
         "ZONE_CHANGED_NEW_AREA",
+        "TRAIT_CONFIG_UPDATED",
+        "SPELLS_CHANGED",
+        "ACTIONBAR_SLOT_CHANGED",
+        "UPDATE_BINDINGS",
+        "ENCOUNTER_START",
+        "ENCOUNTER_END",
+        "TRACKED_ACHIEVEMENT_UPDATE",
+        "TRACKED_ACHIEVEMENT_LIST_CHANGED",
     }) do
         self.eventFrame:RegisterEvent(event)
     end
-    self.eventFrame:SetScript("OnEvent", function()
+    self.eventFrame:SetScript("OnEvent", function(_, event, ...)
+        if event == "ENCOUNTER_START" then
+            ns.Context:SetEncounter(select(1, ...))
+        elseif event == "ENCOUNTER_END" then
+            ns.Context:SetEncounter(nil)
+        end
+        if event == "PLAYER_LEVEL_UP" or event == "PLAYER_SPECIALIZATION_CHANGED" or
+            event == "SPELLS_CHANGED" or event == "TRAIT_CONFIG_UPDATED" or
+            event == "ACTIONBAR_SLOT_CHANGED" or event == "UPDATE_BINDINGS" or
+            event == "TRACKED_ACHIEVEMENT_UPDATE" or event == "TRACKED_ACHIEVEMENT_LIST_CHANGED" then
+            ns.Context:SetLastPlayerEvent(event)
+        end
         self:RequestPublish()
     end)
 end
@@ -117,17 +165,16 @@ end
 
 function Bridge:Publish()
     local snapshot = ns.Context:GetPublicSnapshot()
-    local payload = serialize(snapshot)
-    if #payload > self.MAX_PAYLOAD_BYTES then
-        payload = string.sub(payload, 1, self.MAX_PAYLOAD_BYTES)
-    end
+    local payload, fieldBitmap, transmitted = serialize(snapshot)
     self.sequence = bit.band(self.sequence + 1, 0xFFFFFFFF)
-    local body = "WAI" .. string.char(tonumber(self.PROTOCOL_VERSION)) .. packU32(self.sequence) ..
-        packU16(#payload) .. payload
+    local capturedAt = time and time() or 0
+    local body = "WAI" .. string.char(tonumber(self.PROTOCOL_VERSION)) ..
+        string.char(self.SOURCE_PLUGIN_PUBLIC) .. packU32(self.sequence) ..
+        packU32(capturedAt) .. packU32(fieldBitmap) .. packU16(#payload) .. payload
     local frame = body .. packU32(crc32(body))
     self:Render(frame)
     if ns.UI and ns.UI.UpdateBridgePreview then
-        ns.UI:UpdateBridgePreview(snapshot, self.sequence, #payload)
+        ns.UI:UpdateBridgePreview(transmitted, self.sequence, #payload)
     end
 end
 

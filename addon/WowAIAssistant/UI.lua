@@ -113,7 +113,9 @@ end
 
 function UI:UpdateBridgePreview(snapshot, sequence, payloadBytes)
     local values = {}
-    for _, key in ipairs({ "class", "specialization", "level", "zone", "mapId" }) do
+    for _, key in ipairs({ "class", "specialization", "level", "zone", "mapId", "activity",
+        "encounterId", "achievementId", "criteria", "event", "skills", "talents",
+        "actionSlots", "keyBindings", "unavailable", "truncated" }) do
         if snapshot[key] ~= nil then
             table.insert(values, key .. ": " .. tostring(snapshot[key]))
         end

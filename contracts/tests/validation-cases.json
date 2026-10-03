@@ -89,6 +89,78 @@
       }
     },
     {
+      "name": "valid confirmed image and visual bridge request",
+      "accepted": true,
+      "value": {
+        "schemaVersion": "2.0",
+        "requestId": "44444444-4444-4444-8444-444444444444",
+        "conversationId": "22222222-2222-4222-8222-222222222222",
+        "createdAt": "2026-10-02T04:00:00Z",
+        "mode": "coach",
+        "locale": "zh-CN",
+        "gameFlavor": "retail",
+        "question": "请解释已确认的画面。",
+        "character": {
+          "region": "cn",
+          "realm": null,
+          "name": null,
+          "classId": null,
+          "specializationId": null,
+          "level": null
+        },
+        "images": [
+          {
+            "id": "55555555-5555-4555-8555-555555555555",
+            "mimeType": "image/png",
+            "captureScope": "selected-region",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "dataBase64": "iVBORw0KGgo=",
+            "privacyMaskApplied": true,
+            "userConfirmed": true,
+            "uploadDestination": "deepseek",
+            "uploadPurpose": "visual-question",
+            "uploadConfirmedAt": "2026-10-02T04:00:01Z",
+            "consentNoticeVersion": 1
+          }
+        ],
+        "visualBridge": {
+          "protocolVersion": 1,
+          "source": "plugin-public",
+          "sequence": 42,
+          "capturedAt": "2026-10-02T04:00:00Z",
+          "confidence": 1,
+          "allowedFields": ["class", "level", "achievementId", "criteria"],
+          "unavailableFields": ["criteria"]
+        },
+        "observations": [
+          {
+            "id": "66666666-6666-4666-8666-666666666666",
+            "source": "screen-observed",
+            "kind": "combat-ui",
+            "capturedAt": "2026-10-02T04:00:00Z",
+            "confidence": 0.72,
+            "summary": "character-equipment"
+          }
+        ],
+        "privacy": {
+          "selectedWindowOnly": true,
+          "screenObservationEnabled": true,
+          "rawFramesPersisted": false
+        },
+        "client": {
+          "addonVersion": "0.1.0-dev",
+          "companionVersion": "0.1.0-dev",
+          "uiScale": 1.25
+        },
+        "runtime": {
+          "engine": "codex",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "allowCloudUpload": true
+        }
+      }
+    },
+    {
       "name": "unknown sensitive field",
       "accepted": false,
       "value": {
@@ -195,8 +267,13 @@
             "mimeType": "image/png",
             "captureScope": "wow-window",
             "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "dataBase64": "iVBORw0KGgo=",
             "privacyMaskApplied": false,
-            "userConfirmed": false
+            "userConfirmed": false,
+            "uploadDestination": "openai",
+            "uploadPurpose": "visual-question",
+            "uploadConfirmedAt": "2026-10-02T04:00:01Z",
+            "consentNoticeVersion": 1
           }
         ],
         "observations": [],
@@ -212,9 +289,9 @@
         },
         "runtime": {
           "engine": "codex",
-          "provider": "mock",
-          "model": "deterministic-v1",
-          "allowCloudUpload": false
+          "provider": "openai",
+          "model": "vision-fixture",
+          "allowCloudUpload": true
         }
       }
     }

@@ -16,8 +16,27 @@ const utcTimestampSchema = z
   .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u)
   .refine((value) => !Number.isNaN(Date.parse(value)), 'expected ISO-8601 UTC timestamp');
 const modeSchema = z.enum(['achievement', 'mount', 'pet', 'gear', 'general', 'coach']);
-const providerSchema = z.enum(['local-ollama', 'local-lmstudio', 'openai', 'mock']);
+const providerSchema = z.enum(['local-ollama', 'local-lmstudio', 'openai', 'deepseek', 'mock']);
+const cloudProviderSchema = z.enum(['openai', 'deepseek']);
 const nullableBoundedString = (maximum: number) => z.string().max(maximum).nullable();
+const bridgeFieldSchema = z.enum([
+  'class',
+  'classId',
+  'specialization',
+  'specializationId',
+  'level',
+  'zone',
+  'mapId',
+  'activity',
+  'encounterId',
+  'achievementId',
+  'criteria',
+  'event',
+  'skills',
+  'talents',
+  'actionSlots',
+  'keyBindings',
+]);
 
 export const assistantErrorCodeSchema = z.enum([
   'WOW_WINDOW_NOT_FOUND',
@@ -32,7 +51,10 @@ export const assistantErrorCodeSchema = z.enum([
   'CODEX_TOOL_BLOCKED',
   'MODEL_PROVIDER_UNAVAILABLE',
   'MODEL_CAPABILITY_MISSING',
+  'AI_CREDENTIALS_MISSING',
   'AI_AUTH_FAILED',
+  'AI_MODEL_UNAVAILABLE',
+  'AI_NETWORK_UNAVAILABLE',
   'AI_RATE_LIMITED',
   'AI_TIMEOUT',
   'AI_INVALID_RESPONSE',
@@ -79,15 +101,37 @@ export const assistantRequestSchema = z
         z
           .object({
             id: uuidSchema,
-            mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+            mimeType: z.literal('image/png'),
             captureScope: z.enum(['wow-window', 'selected-region', 'tooltip']),
             sha256: z.string().regex(/^[0-9a-f]{64}$/iu),
+            dataBase64: z
+              .string()
+              .min(12)
+              .max(956_000)
+              .regex(/^[A-Za-z0-9+/]+={0,2}$/u),
             privacyMaskApplied: z.boolean(),
             userConfirmed: z.literal(true),
+            uploadDestination: cloudProviderSchema,
+            uploadPurpose: z.literal('visual-question'),
+            uploadConfirmedAt: utcTimestampSchema,
+            consentNoticeVersion: z.literal(1),
           })
           .strict(),
       )
       .max(1),
+    visualBridge: z
+      .object({
+        protocolVersion: z.literal(1),
+        source: z.literal('plugin-public'),
+        sequence: z.number().int().min(0).max(0xffff_ffff),
+        capturedAt: utcTimestampSchema,
+        confidence: z.number().min(0).max(1),
+        allowedFields: z.array(bridgeFieldSchema).max(16),
+        unavailableFields: z.array(bridgeFieldSchema).max(16),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     observations: z
       .array(
         z
@@ -130,11 +174,33 @@ export const assistantRequestSchema = z
         allowCloudUpload: z.boolean(),
       })
       .strict()
-      .refine((value) => value.provider !== 'openai' || value.allowCloudUpload, {
-        message: 'openai requires explicit cloud upload consent',
-      }),
+      .refine(
+        (value) => !cloudProviderSchema.safeParse(value.provider).success || value.allowCloudUpload,
+        {
+          message: 'cloud providers require explicit upload consent',
+        },
+      )
+      .refine(
+        (value) => cloudProviderSchema.safeParse(value.provider).success || !value.allowCloudUpload,
+        {
+          message: 'only cloud providers may enable cloud upload',
+        },
+      ),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.images.length > 0 &&
+      (!cloudProviderSchema.safeParse(value.runtime.provider).success ||
+        value.images[0]?.uploadDestination !== value.runtime.provider)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['runtime', 'provider'],
+        message: 'confirmed images require the matching explicitly enabled cloud provider',
+      });
+    }
+  });
 
 const answerSchema = z
   .object({

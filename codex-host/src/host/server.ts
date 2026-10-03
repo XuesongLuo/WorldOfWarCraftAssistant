@@ -13,7 +13,7 @@ import {
   parseJsonLine,
 } from '../protocol/validation.js';
 import type { ICodexRuntime } from '../runtime/mock-runtime.js';
-import { CodexRuntimeFailure } from '../runtime/errors.js';
+import { CodexRuntimeFailure, safeDiagnosticMessage } from '../runtime/errors.js';
 
 interface PendingRequest {
   controller: AbortController;
@@ -99,7 +99,7 @@ export class CodexHostServer {
       current.controller.abort(new Error('request timed out'));
       this.sendError(requestId, {
         code: 'AI_TIMEOUT',
-        message: 'The local Codex Host request timed out.',
+        message: 'The Codex Host request timed out.',
         retryable: true,
       });
     }, envelope.timeoutMs);
@@ -197,8 +197,7 @@ export class CodexHostServer {
   }
 
   private log(error: unknown): void {
-    const message = error instanceof Error ? error.message : String(error);
-    this.options.errors.write(`[codex-host] ${message}\n`);
+    this.options.errors.write(`[codex-host] ${safeDiagnosticMessage(error)}\n`);
   }
 }
 

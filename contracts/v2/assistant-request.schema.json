@@ -53,16 +53,63 @@
           "mimeType",
           "captureScope",
           "sha256",
+          "dataBase64",
           "privacyMaskApplied",
-          "userConfirmed"
+          "userConfirmed",
+          "uploadDestination",
+          "uploadPurpose",
+          "uploadConfirmedAt",
+          "consentNoticeVersion"
         ],
         "properties": {
           "id": { "$ref": "#/$defs/uuid" },
-          "mimeType": { "enum": ["image/png", "image/jpeg", "image/webp"] },
+          "mimeType": { "const": "image/png" },
           "captureScope": { "enum": ["wow-window", "selected-region", "tooltip"] },
           "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+          "dataBase64": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 956000,
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          },
           "privacyMaskApplied": { "type": "boolean" },
-          "userConfirmed": { "const": true }
+          "userConfirmed": { "const": true },
+          "uploadDestination": { "enum": ["openai", "deepseek"] },
+          "uploadPurpose": { "const": "visual-question" },
+          "uploadConfirmedAt": { "type": "string", "format": "date-time", "pattern": "Z$" },
+          "consentNoticeVersion": { "const": 1 }
+        }
+      }
+    },
+    "visualBridge": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "protocolVersion",
+        "source",
+        "sequence",
+        "capturedAt",
+        "confidence",
+        "allowedFields",
+        "unavailableFields"
+      ],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "source": { "const": "plugin-public" },
+        "sequence": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "capturedAt": { "type": "string", "format": "date-time", "pattern": "Z$" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "allowedFields": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/bridgeField" }
+        },
+        "unavailableFields": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/bridgeField" }
         }
       }
     },
@@ -113,22 +160,89 @@
       "required": ["engine", "provider", "model", "allowCloudUpload"],
       "properties": {
         "engine": { "const": "codex" },
-        "provider": { "enum": ["local-ollama", "local-lmstudio", "openai", "mock"] },
+        "provider": { "enum": ["local-ollama", "local-lmstudio", "openai", "deepseek", "mock"] },
         "model": { "type": "string", "minLength": 1, "maxLength": 128 },
         "allowCloudUpload": { "type": "boolean" }
       },
       "allOf": [
         {
-          "if": { "properties": { "provider": { "const": "openai" } }, "required": ["provider"] },
-          "then": { "properties": { "allowCloudUpload": { "const": true } } }
+          "if": {
+            "properties": { "provider": { "enum": ["openai", "deepseek"] } },
+            "required": ["provider"]
+          },
+          "then": { "properties": { "allowCloudUpload": { "const": true } } },
+          "else": { "properties": { "allowCloudUpload": { "const": false } } }
         }
       ]
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "images": { "minItems": 1 } }, "required": ["images"] },
+      "then": {
+        "properties": {
+          "runtime": {
+            "properties": {
+              "provider": { "enum": ["openai", "deepseek"] },
+              "allowCloudUpload": { "const": true }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "runtime": { "properties": { "provider": { "const": "openai" } } }
+        }
+      },
+      "then": {
+        "properties": {
+          "images": {
+            "items": { "properties": { "uploadDestination": { "const": "openai" } } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "runtime": { "properties": { "provider": { "const": "deepseek" } } }
+        }
+      },
+      "then": {
+        "properties": {
+          "images": {
+            "items": { "properties": { "uploadDestination": { "const": "deepseek" } } }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "uuid": {
       "type": "string",
       "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "bridgeField": {
+      "enum": [
+        "class",
+        "classId",
+        "specialization",
+        "specializationId",
+        "level",
+        "zone",
+        "mapId",
+        "activity",
+        "encounterId",
+        "achievementId",
+        "criteria",
+        "event",
+        "skills",
+        "talents",
+        "actionSlots",
+        "keyBindings"
+      ]
     }
   }
 }

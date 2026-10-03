@@ -18,6 +18,12 @@ The companion and TypeScript Host communicate with UTF-8 JSON Lines over child-p
 
 The receiver must correlate terminal messages by `requestId`, ignore no malformed input, and produce no UI update after cancellation. A timeout produces `AI_TIMEOUT`; malformed JSON, invalid UTF-8, an unsupported version, an unknown field, an oversized line, or invalid ordering produces `CODEX_PROTOCOL_ERROR`.
 
+Cloud failures are normalized before they cross the Host boundary: missing credentials use
+`AI_CREDENTIALS_MISSING`, rejected credentials use `AI_AUTH_FAILED`, an unavailable exact model uses
+`AI_MODEL_UNAVAILABLE`, connectivity failures use `AI_NETWORK_UNAVAILABLE`, provider throttling uses
+`AI_RATE_LIMITED`, and an invalid structured answer uses `AI_INVALID_RESPONSE`. Provider response
+text, API keys, Authorization headers, and request bodies are not copied into UI errors.
+
 ## Files
 
 - `v2/assistant-request.schema.json`: active request contract with coach mode, observations and privacy boundary.
@@ -62,6 +68,9 @@ The `mock` provider is deterministic and offline. It never launches Codex, acces
 
 ## STEP-011 local model boundary
 
+This is retained as historical/experimental evidence after ADR-017. It is not a normal-user runtime
+requirement or a release gate.
+
 - The companion emits only `runtime.provider: "local-ollama"`, an explicit model name, empty image
   and observation arrays, and `allowCloudUpload: false`. The existing request schema bounds and
   validates the question before Host I/O.
@@ -77,3 +86,40 @@ The `mock` provider is deterministic and offline. It never launches Codex, acces
 - The overlay/C++ bridge permits one in-flight request. Completion and actionable errors return to
   the UI thread through owned messages; shutdown joins the request thread before releasing the Host,
   overlay, and process Job.
+
+## STEP-012 vision and observation boundary
+
+- An image is inline PNG data only after an explicit capture, preview, and confirmation. Its digest,
+  MIME type, capture scope, mask flag, and `userConfirmed: true` travel in the request; unconfirmed,
+  malformed, oversized, non-PNG, or digest-mismatched data fails closed.
+- Every image declares a registered `uploadDestination` matching `runtime.provider`,
+  `uploadPurpose: "visual-question"`, a UTC confirmation time, and the consent-notice version. Host
+  also requires the exact explicitly configured cloud model, matching credential, registered vision
+  capability, and cloud-upload opt-in before materializing an image. It creates a
+  randomly named file only in the application-owned vision temporary directory, supplies that path
+  as an App Server `localImage`, and removes it in `finally`; startup removes remnants from an
+  interrupted prior process. Images never enter logs or the persistent conversation mapping.
+- `observations` distinguish `screen-observed` from `plugin-public` provenance. Continuous screen
+  observations contain summaries, time, and confidence, never raw frames, and are stripped before
+  a cloud request. `visualBridge` is optional
+  for old clients and records protocol version, source, sequence, capture time, confidence, allowed
+  fields, and unavailable fields.
+- The plugin bridge is a visible, player-controlled, one-way channel. Protocol v1 is bounded to 512
+  payload bytes and carries magic/version/source, sequence, Unix capture time, a field bitmap,
+  payload length, percent-encoded allowlisted fields, and CRC32. Unknown, corrupt, stale, duplicate,
+  future, or over-10-Hz frames are discarded.
+
+## STEP-019 request recovery boundary
+
+- The overlay exposes `submitting`, `cancelling`, `completed`, `cancelled`, and `error` request states.
+  Only an active request exposes Cancel; Retry is an explicit player action and appears only for a
+  retryable error.
+- Cancellation sends the protocol `cancel`, interrupts an active App Server turn, stops the C++
+  waiter, and suppresses all late output. Shutdown requests cancellation before joining the worker
+  and destroying the Host, overlay, or queued owned UI messages.
+- A Host/App Server exit or protocol failure discards the broken conversation mapping and creates a
+  fresh owned Host/App Server session at most once for recovery. The failed cloud request is never
+  replayed automatically; the player must choose Retry.
+- Diagnostics are bounded and redacted before forwarding. Credential values, bearer tokens, raw
+  provider errors, image Base64, and request bodies must not enter stdout, UI errors, or committed
+  evidence.

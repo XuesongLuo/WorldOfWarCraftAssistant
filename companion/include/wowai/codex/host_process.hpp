@@ -5,6 +5,7 @@
 #include <chrono>
 #include <filesystem>
 #include <mutex>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -21,7 +22,7 @@ struct HostLaunchOptions {
     std::chrono::milliseconds shutdown_timeout{2'000};
 };
 
-enum class HostReadStatus { line, timeout, exited };
+enum class HostReadStatus { line, timeout, exited, cancelled };
 
 struct HostReadResult {
     HostReadStatus status{HostReadStatus::exited};
@@ -38,7 +39,8 @@ class HostProcess final {
     HostProcess& operator=(const HostProcess&) = delete;
 
     void write_line(std::string_view line);
-    [[nodiscard]] HostReadResult read_line(std::chrono::milliseconds timeout);
+    [[nodiscard]] HostReadResult read_line(std::chrono::milliseconds timeout,
+                                           std::stop_token stop_token = {});
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] DWORD process_id() const noexcept { return process_id_; }
     [[nodiscard]] std::string take_stderr();
@@ -53,6 +55,7 @@ class HostProcess final {
     wowai::platform::UniqueHandle stdout_read_;
     wowai::platform::UniqueHandle stderr_read_;
     std::chrono::milliseconds shutdown_timeout_;
+    std::mutex stdin_mutex_;
     DWORD process_id_{};
     std::string stdout_buffer_;
     std::mutex stderr_mutex_;

@@ -1,3 +1,4 @@
+#include "wowai/app/settings_window.hpp"
 #include "wowai/overlay/overlay_window.hpp"
 #include "wowai/platform/resources.hpp"
 
@@ -95,6 +96,35 @@ int main() {
              (WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)) != 0) {
             return 18;
         }
+        overlay.apply_appearance(80, 20);
+        overlay.set_user_visible(false);
+        if (overlay.user_visible() || ::IsWindowVisible(overlay_window) != FALSE) {
+            return 19;
+        }
+        overlay.set_user_visible(true);
+        if (!overlay.user_visible()) {
+            return 21;
+        }
+        wowai::app::SettingsWindow settings{
+            instance, target, [](const wowai::storage::AssistantSettings&) { return true; },
+            [] { return true; }};
+        settings.show(wowai::storage::AssistantSettings::defaults());
+        if (!settings.visible()) {
+            return 22;
+        }
+        const HWND settings_handle =
+            ::FindWindowW(L"WorldOfWarcraftAssistant.Settings.Window.v1", nullptr);
+        if (settings_handle == nullptr) {
+            return 23;
+        }
+        ::SendMessageW(settings_handle, WM_CLOSE, 0, 0);
+        if (settings.visible()) {
+            return 24;
+        }
+        // Queue cross-thread-style UI updates immediately before teardown. Overlay destruction must
+        // reclaim them without dispatching into a destroyed WebView/window.
+        overlay.post_request_state("cancelling", "正在取消请求…");
+        overlay.post_assistant_message("late result must be safely owned until teardown");
         ::DestroyWindow(target);
         ::UnregisterClassW(target_class, instance);
         std::cout << (headless_controller_ready

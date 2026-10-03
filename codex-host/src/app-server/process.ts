@@ -4,6 +4,10 @@ import type { Writable } from 'node:stream';
 
 import { prepareApplicationDirectories } from '../host/application-directories.js';
 import {
+  cloudAppServerProviderArguments,
+  cloudModelConfigurationFromEnvironment,
+} from '../cloud-model/provider.js';
+import {
   appServerProviderArguments,
   localModelConfigurationFromEnvironment,
   probeLocalModel,
@@ -11,6 +15,7 @@ import {
   type LocalModelConfiguration,
 } from '../local-model/provider.js';
 import { AppServerCodexRuntime } from '../runtime/app-server-runtime.js';
+import { redactSensitiveText } from '../runtime/errors.js';
 import { loadRuntimeLock, verifyRuntimeBinary } from '../runtime/runtime-lock.js';
 import { AppServerClient } from './client.js';
 
@@ -27,7 +32,9 @@ export async function startAppServerRuntime(
   const lock = await loadRuntimeLock(options.lockPath);
   await verifyRuntimeBinary(options.binaryPath, lock);
   const directories = await prepareApplicationDirectories(options.applicationRoot);
-  const localModel = localModelConfigurationFromEnvironment(process.env);
+  const cloudModel = cloudModelConfigurationFromEnvironment(process.env);
+  const localModel =
+    cloudModel === undefined ? localModelConfigurationFromEnvironment(process.env) : undefined;
   const child = spawn(
     options.binaryPath,
     [
@@ -38,6 +45,7 @@ export async function startAppServerRuntime(
       'analytics.enabled=false',
       '-c',
       'web_search="disabled"',
+      ...(cloudModel === undefined ? [] : cloudAppServerProviderArguments(cloudModel)),
       ...(localModel === undefined ? [] : appServerProviderArguments(localModel)),
     ],
     {
@@ -60,6 +68,8 @@ export async function startAppServerRuntime(
     child,
     localModel,
     localModel === undefined ? undefined : () => probeLocalModel(localModel),
+    directories.visionTemp,
+    cloudModel,
   );
   try {
     await runtime.start();
@@ -99,8 +109,10 @@ class OwnedAppServerRuntime extends AppServerCodexRuntime {
     private readonly child: ChildProcessWithoutNullStreams,
     localModel?: LocalModelConfiguration,
     capabilityProbe?: () => Promise<LocalModelCapabilities>,
+    visionTemp?: string,
+    cloudModel?: import('../cloud-model/provider.js').CloudModelConfiguration,
   ) {
-    super(client, workspace, localModel, capabilityProbe);
+    super(client, workspace, localModel, capabilityProbe, visionTemp, cloudModel);
   }
 
   public override async close(): Promise<void> {
@@ -122,14 +134,23 @@ function isRunning(child: ChildProcessWithoutNullStreams): boolean {
 }
 
 function forwardDiagnostics(child: ChildProcessWithoutNullStreams, destination: Writable): void {
-  let remaining = 64 * 1_024;
+  const maximumBytes = 64 * 1_024;
+  let buffered = Buffer.alloc(0);
   child.stderr.on('data', (chunk: Buffer) => {
-    if (remaining <= 0) return;
-    const selected = chunk.subarray(0, remaining);
-    remaining -= selected.byteLength;
-    destination.write(selected);
+    if (buffered.byteLength >= maximumBytes) return;
+    buffered = Buffer.concat([buffered, chunk.subarray(0, maximumBytes - buffered.byteLength)]);
+  });
+  child.stderr.once('end', () => {
+    if (buffered.byteLength === 0) return;
+    destination.write(
+      redactSensitiveText(buffered.toString('utf8'), [
+        process.env.OPENAI_API_KEY,
+        process.env.DEEPSEEK_API_KEY,
+      ]),
+    );
+    buffered = Buffer.alloc(0);
   });
   child.once('error', (error) => {
-    destination.write(`[codex-app-server] ${error.message}\n`);
+    destination.write(`[codex-app-server] ${redactSensitiveText(error.name)}\n`);
   });
 }

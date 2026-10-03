@@ -92,7 +92,7 @@
         "screenObservationUsed": { "type": "boolean" },
         "addonBridgeUsed": { "type": "boolean" },
         "runtime": { "const": "codex" },
-        "provider": { "enum": ["local-ollama", "local-lmstudio", "openai", "mock"] }
+        "provider": { "enum": ["local-ollama", "local-lmstudio", "openai", "deepseek", "mock"] }
       }
     },
     "error": { "oneOf": [{ "type": "null" }, { "$ref": "error.schema.json" }] }

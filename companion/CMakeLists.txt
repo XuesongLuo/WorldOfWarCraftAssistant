@@ -1,5 +1,7 @@
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(wil CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
 
 set(WOWAI_WEBVIEW2_ROOT "${PROJECT_SOURCE_DIR}/.tools/webview2-sdk" CACHE PATH
     "Path to the locked Microsoft WebView2 SDK")
@@ -19,9 +21,14 @@ add_library(wowai_core STATIC
     src/app/application_shell.cpp
     src/app/build_info.cpp
     src/app/lifecycle.cpp
+    src/app/settings_window.cpp
     src/capture/anchor_detector.cpp
     src/capture/calibration.cpp
+    src/capture/image_processing.cpp
+    src/capture/image_encoding.cpp
+    src/capture/scene_awareness.cpp
     src/capture/selection_store.cpp
+    src/capture/visual_bridge.cpp
     src/capture/window_capture.cpp
     src/capture/window_discovery.cpp
     src/codex/assistant_session.cpp
@@ -33,6 +40,13 @@ add_library(wowai_core STATIC
     src/overlay/overlay_window.cpp
     src/overlay/web_message_bridge.cpp
     src/platform/single_instance.cpp
+    src/platform/global_hotkey.cpp
+    src/storage/application_paths.cpp
+    src/storage/credential_store.cpp
+    src/storage/local_data.cpp
+    src/storage/local_database.cpp
+    src/storage/safe_log.cpp
+    src/storage/settings.cpp
 )
 
 target_include_directories(wowai_core PUBLIC include)
@@ -41,15 +55,22 @@ target_link_libraries(wowai_core
     PUBLIC
         nlohmann_json::nlohmann_json
         WIL::WIL
+        spdlog::spdlog
+        unofficial::sqlite3::sqlite3
     PRIVATE
         gdi32
         d3d11
+        bcrypt
+        crypt32
         dcomp
+        dwmapi
         dxgi
         ole32
+        windowscodecs
         shell32
         WebView2::LoaderStatic
         user32
+        windowsapp
 )
 wowai_enable_warnings(wowai_core)
 
@@ -73,6 +94,7 @@ if(WOWAI_BUILD_TESTS)
             "${PROJECT_SOURCE_DIR}/codex-host/src/app-server/process.ts"
             "${PROJECT_SOURCE_DIR}/codex-host/src/app-server/protocol.ts"
             "${PROJECT_SOURCE_DIR}/codex-host/src/app-server/tool-policy.ts"
+            "${PROJECT_SOURCE_DIR}/codex-host/src/cloud-model/provider.ts"
             "${PROJECT_SOURCE_DIR}/codex-host/src/host/application-directories.ts"
             "${PROJECT_SOURCE_DIR}/codex-host/src/host/json-line-reader.ts"
             "${PROJECT_SOURCE_DIR}/codex-host/src/host/server.ts"
@@ -97,12 +119,18 @@ if(WOWAI_BUILD_TESTS)
         tests/unit/anchor_detector_tests.cpp
         tests/unit/assistant_session_tests.cpp
         tests/unit/calibration_tests.cpp
+        tests/unit/image_processing_tests.cpp
+        tests/unit/image_encoding_tests.cpp
+        tests/unit/scene_awareness_tests.cpp
         tests/unit/host_process_tests.cpp
         tests/unit/lifecycle_tests.cpp
+        tests/unit/global_hotkey_tests.cpp
+        tests/unit/local_storage_tests.cpp
         tests/unit/overlay_policy_tests.cpp
         tests/unit/resource_tests.cpp
         tests/unit/selection_store_tests.cpp
         tests/unit/single_instance_tests.cpp
+        tests/unit/visual_bridge_tests.cpp
         tests/unit/window_discovery_tests.cpp
         tests/unit/web_message_bridge_tests.cpp
     )
@@ -110,6 +138,7 @@ if(WOWAI_BUILD_TESTS)
     target_compile_definitions(wowai_tests PRIVATE
         WOWAI_CONTRACT_FIXTURES="${PROJECT_SOURCE_DIR}/contracts/tests/validation-cases.json"
         WOWAI_ANCHOR_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/anchor-samples.json"
+        WOWAI_VISION_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/vision-samples.json"
         WOWAI_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
         WOWAI_HOST_PROCESS_FIXTURE="$<TARGET_FILE:wowai_host_process_fixture>"
         WOWAI_NODE_EXECUTABLE="${PROJECT_SOURCE_DIR}/.tools/node/node.exe"

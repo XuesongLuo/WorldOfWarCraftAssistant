@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,9 @@ describe('application-owned Codex environment', () => {
 
   it('creates separate config, state, and empty workspace directories', async () => {
     const root = await mkdtemp(join(tmpdir(), 'wowai-host-dirs-'));
+    const staleVision = join(root, 'vision-temp');
+    await mkdir(staleVision);
+    await writeFile(join(staleVision, 'interrupted-request.png'), 'private pixels');
     const paths = await prepareApplicationDirectories(root);
 
     expect(paths).toEqual({
@@ -30,8 +33,10 @@ describe('application-owned Codex environment', () => {
       config: join(root, 'codex-config'),
       state: join(root, 'codex-state'),
       workspace: join(root, 'codex-workspace'),
+      visionTemp: join(root, 'vision-temp'),
     });
     expect(await readFile(join(paths.config, 'config.toml'), 'utf8')).toMatch(/analytics/u);
+    expect(await readdir(paths.visionTemp)).toEqual([]);
   });
 
   it('fails closed on a binary checksum or version mismatch', async () => {

@@ -5,11 +5,15 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdio>
+#include <ctime>
 #include <exception>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <system_error>
 
+#include <objbase.h>
 #include <shellapi.h>
 
 namespace wowai::app {
@@ -22,12 +26,95 @@ constexpr UINT command_manual_calibration = 1003;
 constexpr UINT command_reset_calibration = 1004;
 constexpr UINT command_forget_selection = 1005;
 constexpr UINT command_toggle_interaction = 1006;
+constexpr UINT command_settings = 1007;
+constexpr UINT command_toggle_overlay = 1008;
 constexpr UINT command_first_candidate = 2000;
 constexpr UINT maximum_candidate_commands = 100;
 constexpr UINT_PTR overlay_timer = 1;
 
 [[noreturn]] void throw_last_error(const char* operation) {
     throw std::system_error(static_cast<int>(::GetLastError()), std::system_category(), operation);
+}
+
+std::string new_uuid_text() {
+    GUID value{};
+    if (FAILED(::CoCreateGuid(&value))) {
+        throw std::runtime_error("could not create vision identifier");
+    }
+    std::array<char, 37> text{};
+    const int written = std::snprintf(
+        text.data(), text.size(), "%08lx-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x", value.Data1,
+        value.Data2, value.Data3, value.Data4[0], value.Data4[1], value.Data4[2], value.Data4[3],
+        value.Data4[4], value.Data4[5], value.Data4[6], value.Data4[7]);
+    if (written != 36) {
+        throw std::runtime_error("could not format vision identifier");
+    }
+    return text.data();
+}
+
+std::string utc_now_text() {
+    SYSTEMTIME value{};
+    ::GetSystemTime(&value);
+    std::array<char, 25> text{};
+    const int written = std::snprintf(
+        text.data(), text.size(), "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ", value.wYear, value.wMonth,
+        value.wDay, value.wHour, value.wMinute, value.wSecond, value.wMilliseconds);
+    if (written != 24) {
+        throw std::runtime_error("could not format vision timestamp");
+    }
+    return text.data();
+}
+
+std::string utc_unix_text(const std::uint32_t timestamp) {
+    const std::time_t value = static_cast<std::time_t>(timestamp);
+    std::tm utc{};
+    if (::gmtime_s(&utc, &value) != 0) {
+        throw std::runtime_error("could not convert visual bridge timestamp");
+    }
+    std::array<char, 21> text{};
+    const auto written = std::strftime(text.data(), text.size(), "%Y-%m-%dT%H:%M:%SZ", &utc);
+    if (written != 20) {
+        throw std::runtime_error("could not format visual bridge timestamp");
+    }
+    return text.data();
+}
+
+struct ActionableError {
+    std::string text;
+    std::string action;
+};
+
+ActionableError actionable_error(const std::string_view code, const bool recovered) {
+    if (code == "AI_CREDENTIALS_MISSING") {
+        return {"缺少当前云端提供方的 API 凭据。", "在 .env.local 配置对应 API key 后重启"};
+    }
+    if (code == "AI_AUTH_FAILED") {
+        return {"云端提供方拒绝了当前凭据。", "检查 API key 是否有效且属于当前提供方"};
+    }
+    if (code == "AI_MODEL_UNAVAILABLE") {
+        return {"配置的精确模型当前不可用。", "检查 WOWAI_CLOUD_MODEL 后重试"};
+    }
+    if (code == "AI_RATE_LIMITED") {
+        return {"云端提供方正在限流，本次请求未自动重发。", "稍候点击重试"};
+    }
+    if (code == "AI_NETWORK_UNAVAILABLE") {
+        return {"无法连接云端提供方，本次请求未自动重发。", "检查网络后点击重试"};
+    }
+    if (code == "AI_TIMEOUT") {
+        return {"请求已超时并停止，本次请求未自动重发。", "确认网络稳定后点击重试"};
+    }
+    if (code == "AI_INVALID_RESPONSE") {
+        return {"模型回复结构无效，未向聊天区显示不可信的部分内容。", "点击重试或更换模型"};
+    }
+    if (code == "CODEX_START_FAILED" || code == "CODEX_PROTOCOL_ERROR") {
+        return {recovered ? "Host/App Server 异常已安全恢复，本次请求未自动重发。"
+                          : "Host/App Server 异常且恢复失败，本次请求未自动重发。",
+                recovered ? "点击重试" : "检查 Host 配置后重启应用"};
+    }
+    if (code == "MODEL_CAPABILITY_MISSING") {
+        return {"当前模型不支持这类已确认输入。", "更换支持该输入的精确模型"};
+    }
+    return {"请求失败，未显示不完整或未经验证的输出。", "检查配置后重试"};
 }
 
 } // namespace
@@ -101,7 +188,8 @@ class ApplicationShell::TrayIcon final {
     bool added_{false};
 };
 
-ApplicationShell::ApplicationShell(const HINSTANCE instance) : instance_(instance) {
+ApplicationShell::ApplicationShell(const HINSTANCE instance)
+    : instance_(instance), paths_(wowai::storage::ApplicationPaths::defaults()) {
     if (instance_ == nullptr) {
         throw std::invalid_argument("application instance must not be null");
     }
@@ -114,18 +202,57 @@ ApplicationShell::ApplicationShell(const HINSTANCE instance) : instance_(instanc
         throw_last_error("CreateWindowExW failed");
     }
 
+    bool storage_degraded = false;
+    try {
+        paths_.create_private_directories();
+        local_data_cleaner_ = std::make_unique<wowai::storage::LocalDataCleaner>(paths_);
+        static_cast<void>(local_data_cleaner_->clean_temporary_screenshots());
+        database_ = std::make_unique<wowai::storage::LocalDatabase>(paths_.database);
+    } catch (...) {
+        storage_degraded = true;
+        database_ =
+            std::make_unique<wowai::storage::LocalDatabase>(std::filesystem::path{L":memory:"});
+    }
+    credential_store_ = std::make_unique<wowai::storage::CredentialStore>(paths_.credentials);
+    try {
+        safe_log_ = std::make_unique<wowai::storage::SafeLog>(paths_.logs);
+        safe_log_->info("application.start");
+    } catch (...) {
+        storage_degraded = true;
+    }
+    settings_ = database_->load_settings();
+    global_hotkey_ =
+        std::make_unique<wowai::platform::GlobalHotkey>(window_.get(), hotkey_registrar_);
+
     tray_icon_ = std::make_unique<TrayIcon>(window_.get());
     lifecycle_.transition_to(LifecycleState::waiting_for_wow);
     selection_store_ = std::make_unique<wowai::capture::SelectionStore>(
         wowai::capture::SelectionStore::default_path());
     try {
         assistant_session_ = wowai::codex::AssistantSession::from_environment();
-    } catch (const std::exception& error) {
+    } catch (const wowai::codex::AssistantFailure& error) {
+        assistant_configuration_code_ = std::string{error.code()};
         assistant_configuration_error_ = error.what();
+    } catch (const std::exception&) {
+        assistant_configuration_code_ = "CODEX_START_FAILED";
+        assistant_configuration_error_ = "Host 启动失败；请检查锁定运行时与路径配置。";
     }
     overlay_window_ = std::make_unique<wowai::overlay::OverlayWindow>(
         instance_, [this](std::wstring status) { set_status(std::move(status)); },
-        [this](std::string question) { submit_question(std::move(question)); });
+        [this](wowai::overlay::WebMessage message) { handle_overlay_message(std::move(message)); });
+    overlay_window_->apply_appearance(settings_.overlay_opacity_percent,
+                                      settings_.overlay_font_size_px);
+    settings_window_ = std::make_unique<SettingsWindow>(
+        instance_, window_.get(),
+        [this](const wowai::storage::AssistantSettings& value) { return apply_settings(value); },
+        [this] { return delete_local_data(); });
+    const bool hotkey_conflict =
+        global_hotkey_->apply(settings_) == wowai::platform::HotkeyApplyResult::conflict;
+    if (hotkey_conflict) {
+        settings_.hotkey_enabled = false;
+        database_->save_settings(settings_);
+        safe_log_->error("hotkey.conflict");
+    }
     if (::SetTimer(window_.get(), overlay_timer, 100, nullptr) == 0) {
         throw_last_error("SetTimer failed");
     }
@@ -133,6 +260,14 @@ ApplicationShell::ApplicationShell(const HINSTANCE instance) : instance_(instanc
     ::ShowWindow(window_.get(), SW_SHOWDEFAULT);
     ::UpdateWindow(window_.get());
     refresh_wow_windows();
+    if (storage_degraded) {
+        set_status(L"Local data storage is unavailable. Safe in-memory defaults are active; "
+                   L"settings, credentials, sessions, and logs will not be written. Check "
+                   L"LocalAppData permissions, then restart.");
+    } else if (hotkey_conflict) {
+        set_status(L"The configured global hotkey is already used by another application and was "
+                   L"disabled. Open Settings from the tray menu to choose another shortcut.");
+    }
 }
 
 ApplicationShell::~ApplicationShell() {
@@ -140,11 +275,25 @@ ApplicationShell::~ApplicationShell() {
         ::KillTimer(window_.get(), overlay_timer);
     }
     if (request_thread_.joinable()) {
+        request_thread_.request_stop();
+        if (assistant_session_) {
+            assistant_session_->cancel_active_request();
+        }
         request_thread_.join();
     }
+    discard_screenshot();
+    global_hotkey_.reset();
+    settings_window_.reset();
     assistant_session_.reset();
     overlay_window_.reset();
     tray_icon_.reset();
+    if (safe_log_) {
+        safe_log_->info("application.stop");
+    }
+    safe_log_.reset();
+    credential_store_.reset();
+    database_.reset();
+    local_data_cleaner_.reset();
     window_.reset();
     window_class_.reset();
 }
@@ -224,15 +373,32 @@ LRESULT ApplicationShell::handle_message(const HWND window, const UINT message, 
             }
             return 0;
         }
+        if (LOWORD(wparam) == command_settings) {
+            show_settings();
+            return 0;
+        }
+        if (LOWORD(wparam) == command_toggle_overlay) {
+            if (overlay_window_) {
+                overlay_window_->toggle_visibility();
+            }
+            return 0;
+        }
         if (LOWORD(wparam) >= command_first_candidate &&
             LOWORD(wparam) < command_first_candidate + maximum_candidate_commands) {
             select_candidate(LOWORD(wparam) - command_first_candidate, true);
             return 0;
         }
         break;
+    case WM_HOTKEY:
+        if (wparam == wowai::platform::assistant_hotkey_id && overlay_window_) {
+            overlay_window_->toggle_visibility();
+            return 0;
+        }
+        break;
     case WM_TIMER:
         if (wparam == overlay_timer && overlay_window_) {
             overlay_window_->tick();
+            tick_observation();
             return 0;
         }
         break;
@@ -281,6 +447,86 @@ void ApplicationShell::activate() noexcept {
     ::FlashWindow(window_.get(), TRUE);
 }
 
+void ApplicationShell::show_settings() noexcept {
+    if (settings_window_) {
+        settings_window_->show(settings_);
+    }
+}
+
+bool ApplicationShell::apply_settings(const wowai::storage::AssistantSettings& settings) noexcept {
+    if (!settings.valid() || !database_ || !global_hotkey_) {
+        return false;
+    }
+    const auto result = global_hotkey_->apply(settings);
+    if (result == wowai::platform::HotkeyApplyResult::conflict) {
+        static_cast<void>(global_hotkey_->apply(settings_));
+        ::MessageBoxW(settings_window_ && settings_window_->visible() ? ::GetForegroundWindow()
+                                                                      : window_.get(),
+                      L"该全局快捷键已被其他程序占用。原快捷键已恢复，请重新选择。", L"快捷键冲突",
+                      MB_OK | MB_ICONWARNING);
+        if (safe_log_)
+            safe_log_->error("hotkey.conflict");
+        return false;
+    }
+    try {
+        database_->save_settings(settings);
+        settings_ = settings;
+        if (overlay_window_) {
+            overlay_window_->apply_appearance(settings_.overlay_opacity_percent,
+                                              settings_.overlay_font_size_px);
+        }
+        if (safe_log_)
+            safe_log_->info("settings.saved");
+        return true;
+    } catch (...) {
+        static_cast<void>(global_hotkey_->apply(settings_));
+        ::MessageBoxW(window_.get(), L"本地设置无法安全保存，原设置仍然有效。", L"保存失败",
+                      MB_OK | MB_ICONERROR);
+        if (safe_log_)
+            safe_log_->error("settings.save_failed");
+        return false;
+    }
+}
+
+bool ApplicationShell::delete_local_data() noexcept {
+    try {
+        cancel_request();
+        if (request_thread_.joinable()) {
+            request_thread_.join();
+        }
+        discard_screenshot();
+        pause_observation();
+        database_->reset_all();
+        credential_store_->erase_all();
+        safe_log_.reset();
+        if (local_data_cleaner_) {
+            static_cast<void>(local_data_cleaner_->delete_non_database_data());
+        }
+        paths_.create_private_directories();
+        safe_log_ = std::make_unique<wowai::storage::SafeLog>(paths_.logs);
+        settings_ = database_->load_settings();
+        static_cast<void>(global_hotkey_->apply(settings_));
+        if (overlay_window_) {
+            overlay_window_->apply_appearance(settings_.overlay_opacity_percent,
+                                              settings_.overlay_font_size_px);
+        }
+        safe_log_->info("local_data.deleted");
+        return true;
+    } catch (...) {
+        if (!safe_log_) {
+            try {
+                safe_log_ = std::make_unique<wowai::storage::SafeLog>(paths_.logs);
+            } catch (...) {
+            }
+        }
+        if (safe_log_)
+            safe_log_->error("local_data.delete_failed");
+        ::MessageBoxW(window_.get(), L"部分本地数据正在使用或无法删除，请退出应用后重试。",
+                      L"删除失败", MB_OK | MB_ICONERROR);
+        return false;
+    }
+}
+
 void ApplicationShell::show_tray_menu() noexcept {
     wowai::platform::UniqueMenu menu{::CreatePopupMenu()};
     if (!menu) {
@@ -291,6 +537,10 @@ void ApplicationShell::show_tray_menu() noexcept {
         return;
     }
     ::AppendMenuW(menu.get(), MF_STRING, command_forget_selection, L"Forget saved WoW selection");
+    ::AppendMenuW(menu.get(), MF_STRING, command_toggle_overlay,
+                  overlay_window_ && overlay_window_->user_visible() ? L"Hide assistant overlay"
+                                                                     : L"Show assistant overlay");
+    ::AppendMenuW(menu.get(), MF_STRING, command_settings, L"Settings...");
 
     wowai::platform::UniqueMenu candidates_menu{::CreatePopupMenu()};
     if (candidates_menu) {
@@ -341,6 +591,8 @@ void ApplicationShell::show_tray_menu() noexcept {
 
 void ApplicationShell::refresh_wow_windows() noexcept {
     try {
+        pause_observation();
+        discard_screenshot();
         candidates_ = window_discovery_.discover();
         selected_candidate_.reset();
         content_rect_.reset();
@@ -374,6 +626,8 @@ void ApplicationShell::select_candidate(const std::size_t index, const bool reme
         return;
     }
     try {
+        pause_observation();
+        discard_screenshot();
         selected_candidate_ = candidates_[index];
         lifecycle_.on_wow_exited();
         lifecycle_.transition_to(LifecycleState::ready);
@@ -492,42 +746,338 @@ void ApplicationShell::set_status(std::wstring detail) noexcept {
     }
 }
 
+void ApplicationShell::handle_overlay_message(wowai::overlay::WebMessage message) noexcept {
+    switch (message.kind) {
+    case wowai::overlay::WebMessageKind::send_message:
+        submit_question(std::move(message.text));
+        break;
+    case wowai::overlay::WebMessageKind::cancel_request:
+        cancel_request();
+        break;
+    case wowai::overlay::WebMessageKind::capture_screenshot:
+        capture_screenshot(message.enabled, message.selected_region);
+        break;
+    case wowai::overlay::WebMessageKind::confirm_screenshot:
+        confirm_screenshot();
+        break;
+    case wowai::overlay::WebMessageKind::discard_screenshot:
+        discard_screenshot();
+        break;
+    case wowai::overlay::WebMessageKind::set_observation:
+        start_observation(message.text == "coaching" ? wowai::capture::ObservationMode::coaching
+                                                     : wowai::capture::ObservationMode::scene);
+        break;
+    case wowai::overlay::WebMessageKind::pause_observation:
+        pause_observation();
+        break;
+    case wowai::overlay::WebMessageKind::ready:
+    case wowai::overlay::WebMessageKind::set_interaction:
+    case wowai::overlay::WebMessageKind::open_external:
+        break;
+    }
+}
+
+void ApplicationShell::capture_screenshot(const bool mask_chat,
+                                          const bool selected_region) noexcept {
+    if (!overlay_window_ || !selected_candidate_ ||
+        ::IsWindow(selected_candidate_->window) == FALSE ||
+        ::IsIconic(selected_candidate_->window) != FALSE) {
+        if (overlay_window_) {
+            overlay_window_->post_status("请先选择一个未最小化的 WoW 客户端。", true);
+        }
+        return;
+    }
+    try {
+        auto frame = window_capture_.capture_client(selected_candidate_->window);
+        std::string capture_scope = "wow-window";
+        if (selected_region && manual_calibration_.configured() && content_rect_ &&
+            content_rect_->valid()) {
+            frame = wowai::capture::crop_image(frame.view(), *content_rect_);
+            capture_scope = "selected-region";
+        }
+        bool privacy_mask_applied = false;
+        if (mask_chat) {
+            const std::array masks{
+                wowai::capture::Rect{0, frame.height * 2 / 3, frame.width / 2, frame.height}};
+            wowai::capture::apply_privacy_masks(frame, masks);
+            privacy_mask_applied = true;
+        }
+        const auto analysis = wowai::capture::analyze_image(frame.view());
+        if (analysis.validity != wowai::capture::ImageValidity::valid) {
+            throw std::runtime_error("captured frame is empty, black, or too dark");
+        }
+        auto encoded = wowai::capture::encode_png_bounded(frame.view());
+        const auto encoded_width = encoded.width;
+        const auto encoded_height = encoded.height;
+        pending_screenshot_ = PendingScreenshot{
+            std::move(encoded),   encoded_width, encoded_height,           utc_now_text(),
+            privacy_mask_applied, false,         std::move(capture_scope), {}};
+        overlay_window_->post_screenshot_preview(
+            pending_screenshot_->encoded.base64, pending_screenshot_->width,
+            pending_screenshot_->height, pending_screenshot_->privacy_mask_applied);
+    } catch (const std::exception&) {
+        discard_screenshot();
+        overlay_window_->post_status(
+            "截图失败或画面为空/过暗。请使用窗口化全屏并确认所选 WoW 窗口可见。", true);
+    }
+}
+
+void ApplicationShell::confirm_screenshot() noexcept {
+    if (!pending_screenshot_ || !overlay_window_) {
+        if (overlay_window_) {
+            overlay_window_->post_status("没有可确认的截图。", true);
+        }
+        return;
+    }
+    pending_screenshot_->confirmed = true;
+    pending_screenshot_->upload_confirmed_at = utc_now_text();
+    const std::string destination =
+        assistant_session_ ? std::string{assistant_session_->provider()} : "已配置的云端提供方";
+    overlay_window_->post_status("截图已确认：将上传至 " + destination +
+                                     "，仅用于下一次图片问题；丢弃或请求结束后立即释放。",
+                                 false);
+}
+
+void ApplicationShell::discard_screenshot() noexcept {
+    if (pending_screenshot_) {
+        std::fill(pending_screenshot_->encoded.bytes.begin(),
+                  pending_screenshot_->encoded.bytes.end(), 0);
+        std::fill(pending_screenshot_->encoded.base64.begin(),
+                  pending_screenshot_->encoded.base64.end(), '\0');
+        pending_screenshot_.reset();
+    }
+    if (overlay_window_) {
+        overlay_window_->clear_screenshot_preview();
+    }
+}
+
+void ApplicationShell::start_observation(const wowai::capture::ObservationMode mode) noexcept {
+    if (!selected_candidate_ || ::IsWindow(selected_candidate_->window) == FALSE ||
+        !overlay_window_ || !overlay_window_->visible()) {
+        if (overlay_window_) {
+            overlay_window_->post_status("观察会话只能在所选 WoW 窗口和持续可见状态条下启动。",
+                                         true);
+        }
+        return;
+    }
+    observation_session_.start(mode, std::chrono::steady_clock::now());
+    overlay_window_->post_status(
+        mode == wowai::capture::ObservationMode::coaching
+            ? "实战教学观察已开启：仅本地、只读、无游戏输入；失焦后不会自动恢复。"
+            : "场景感知已开启：低频、仅本地、原始帧不落盘；失焦后不会自动恢复。",
+        false);
+}
+
+void ApplicationShell::pause_observation() noexcept {
+    const bool was_active = observation_session_.active();
+    observation_session_.pause();
+    if (was_active && overlay_window_) {
+        overlay_window_->post_status("观察已立即暂停，原始帧已释放；需要再次显式开启。", false);
+    }
+}
+
+void ApplicationShell::tick_observation() noexcept {
+    if (!observation_session_.active() || !selected_candidate_ || !overlay_window_) {
+        return;
+    }
+    const HWND target = selected_candidate_->window;
+    const HWND foreground = ::GetForegroundWindow();
+    const wowai::capture::ObservationGate gate{
+        ::IsWindow(target) != FALSE,
+        foreground == target || overlay_window_->owns_foreground(),
+        ::IsIconic(target) != FALSE,
+        overlay_window_->visible(),
+    };
+    const auto decision = observation_session_.evaluate(gate, std::chrono::steady_clock::now());
+    if (!decision.active) {
+        overlay_window_->post_status(
+            "观察已因 WoW 失焦、最小化、退出或状态条不可见而停止，不会自动恢复。", true);
+        return;
+    }
+    if (decision.capture) {
+        process_observation_frame();
+    }
+}
+
+void ApplicationShell::process_observation_frame() noexcept {
+    if (!selected_candidate_ || !overlay_window_) {
+        return;
+    }
+    try {
+        const auto frame = window_capture_.capture_client(selected_candidate_->window);
+        const auto scene = wowai::capture::classify_scene(frame.view());
+        const std::string captured_at = utc_now_text();
+        const std::string scene_name{wowai::capture::to_string(scene.kind)};
+        const std::string mode =
+            observation_session_.mode() == wowai::capture::ObservationMode::coaching ? "coaching"
+                                                                                     : "scene";
+        const std::string reason = scene.kind == wowai::capture::SceneKind::unknown
+                                       ? "低置信度结果按未知处理，不作为确定事实。"
+                                       : "由所选 WoW 客户区的低频本地像素特征粗分类。";
+        observations_.push_back({{"id", new_uuid_text()},
+                                 {"source", "screen-observed"},
+                                 {"kind", "game-state"},
+                                 {"capturedAt", captured_at},
+                                 {"confidence", scene.confidence},
+                                 {"summary", "scene=" + scene_name + "; reason=" + reason}});
+        while (observations_.size() > 32) {
+            observations_.erase(observations_.begin());
+        }
+        overlay_window_->post_observation(mode, scene_name, captured_at, scene.confidence, reason);
+
+        wowai::capture::Rect bridge_rect{};
+        const auto bridge_bytes = wowai::capture::sample_visual_bridge(frame.view(), bridge_rect);
+        if (bridge_bytes) {
+            const auto decoded = wowai::capture::decode_visual_bridge_frame(*bridge_bytes);
+            if (decoded.frame &&
+                visual_bridge_gate_.accept(*decoded.frame,
+                                           static_cast<std::uint32_t>(std::time(nullptr))) ==
+                    wowai::capture::VisualBridgeError::none) {
+                nlohmann::json allowed = nlohmann::json::array();
+                for (const auto& [key, ignored] : decoded.frame->fields) {
+                    static_cast<void>(ignored);
+                    if (key != "unavailable") {
+                        allowed.push_back(key);
+                    }
+                }
+                visual_bridge_context_ = {
+                    {"protocolVersion", decoded.frame->protocol_version},
+                    {"source", "plugin-public"},
+                    {"sequence", decoded.frame->sequence},
+                    {"capturedAt", utc_unix_text(decoded.frame->captured_at_unix)},
+                    {"confidence", 1.0},
+                    {"allowedFields", allowed},
+                    {"unavailableFields", decoded.frame->unavailable_fields},
+                };
+                observations_.push_back(
+                    {{"id", new_uuid_text()},
+                     {"source", "plugin-public"},
+                     {"kind", "game-state"},
+                     {"capturedAt", utc_unix_text(decoded.frame->captured_at_unix)},
+                     {"confidence", 1.0},
+                     {"summary", nlohmann::json(decoded.frame->fields).dump()}});
+                while (observations_.size() > 32) {
+                    observations_.erase(observations_.begin());
+                }
+            }
+        }
+        // frame owns the only raw observation pixels and is destroyed here. No image is logged,
+        // persisted, or attached to a request by the continuous observation path.
+    } catch (const std::exception&) {
+        pause_observation();
+        overlay_window_->post_status("观察捕获失败并已停止；没有保存、记录或上传原始帧。", true);
+    }
+}
+
 void ApplicationShell::submit_question(std::string question) noexcept {
     if (!overlay_window_) {
         return;
     }
     if (!assistant_session_) {
-        std::string detail = assistant_configuration_error_.empty()
-                                 ? "本地 Host 尚未配置。请设置 WOWAI_NODE_BINARY、"
-                                   "WOWAI_HOST_SCRIPT、WOWAI_MODEL_PROVIDER、"
-                                   "WOWAI_LOCAL_MODEL_ENDPOINT、WOWAI_LOCAL_MODEL 以及 "
-                                   "WOWAI_CODEX_BINARY/LOCK/ROOT。"
-                                 : "本地 Host 配置无效：" + assistant_configuration_error_;
-        overlay_window_->post_status(std::move(detail), true);
+        const std::string code = assistant_configuration_code_.empty()
+                                     ? "MODEL_PROVIDER_UNAVAILABLE"
+                                     : assistant_configuration_code_;
+        const auto detail =
+            assistant_configuration_error_.empty()
+                ? ActionableError{"云端 Host 尚未配置。",
+                                  "配置 Host、提供方、精确模型、上传同意和 .env.local 凭据后重启"}
+                : actionable_error(code, false);
+        overlay_window_->post_request_state("error", detail.text, code, false, detail.action);
         return;
     }
     if (request_active_.exchange(true)) {
-        overlay_window_->post_status("已有本地请求正在处理，请等待完成。", true);
+        overlay_window_->post_status("已有云端请求正在处理，请等待完成。", true);
         return;
     }
     if (request_thread_.joinable()) {
         request_thread_.join();
     }
-    request_thread_ = std::jthread([this, question = std::move(question)] {
+    std::optional<wowai::codex::ConfirmedImage> confirmed_image;
+    if (pending_screenshot_ && pending_screenshot_->confirmed) {
+        confirmed_image = wowai::codex::ConfirmedImage{new_uuid_text(),
+                                                       pending_screenshot_->encoded.mime_type,
+                                                       pending_screenshot_->capture_scope,
+                                                       pending_screenshot_->encoded.sha256,
+                                                       pending_screenshot_->encoded.base64,
+                                                       pending_screenshot_->privacy_mask_applied,
+                                                       pending_screenshot_->upload_confirmed_at};
+    }
+    nlohmann::json observations = nlohmann::json::array();
+    for (const auto& observation : observations_) {
+        if (observation.value("source", "") != "screen-observed") {
+            observations.push_back(observation);
+        }
+    }
+    const auto visual_bridge = visual_bridge_context_;
+    // Continuous screen observations remain local. Only a separately confirmed screenshot may
+    // cross the cloud boundary; plugin-public structured context is independently opt-in.
+    const bool observation_enabled = false;
+    if (confirmed_image) {
+        discard_screenshot();
+    }
+    overlay_window_->post_request_state("submitting", "正在请求已启用的云端模型…");
+    request_thread_ = std::jthread([this, question = std::move(question),
+                                    image = std::move(confirmed_image), observations, visual_bridge,
+                                    observation_enabled](const std::stop_token stop_token) mutable {
         try {
-            const std::string answer =
-                assistant_session_->ask(question, std::chrono::milliseconds{30'000});
+            const std::string answer = assistant_session_->ask(
+                question, std::chrono::milliseconds{30'000}, std::move(image), observations,
+                visual_bridge, observation_enabled, stop_token);
+            if (database_) {
+                try {
+                    database_->save_exchange(question, answer);
+                } catch (...) {
+                    if (safe_log_)
+                        safe_log_->error("conversation.save_failed");
+                }
+            }
             if (overlay_window_) {
                 overlay_window_->post_assistant_message(answer);
+                overlay_window_->post_request_state("completed", "云端回复完成");
             }
-        } catch (const std::exception& error) {
+        } catch (const wowai::codex::AssistantRequestCancelled&) {
             if (overlay_window_) {
-                overlay_window_->post_status(
-                    "本地模型请求失败：" + std::string{error.what()}, true);
+                overlay_window_->post_request_state("cancelled", "请求已取消；不会显示迟到回复。");
+            }
+        } catch (const wowai::codex::AssistantFailure& error) {
+            bool recovered = false;
+            if (error.host_recovery_recommended()) {
+                try {
+                    assistant_session_->recover();
+                    recovered = true;
+                } catch (...) {
+                    recovered = false;
+                }
+            }
+            if (overlay_window_) {
+                const std::string code{error.code()};
+                const auto detail = actionable_error(code, recovered);
+                overlay_window_->post_request_state("error", detail.text, code,
+                                                    error.retryable() || recovered, detail.action);
+            }
+        } catch (...) {
+            if (overlay_window_) {
+                overlay_window_->post_request_state(
+                    "error", "请求失败，诊断信息已脱敏；本次请求未自动重发。", "CODEX_START_FAILED",
+                    true, "点击重试；若再次失败请重启应用");
             }
         }
         request_active_ = false;
     });
+}
+
+void ApplicationShell::cancel_request() noexcept {
+    if (!request_active_.load() || !assistant_session_ || !request_thread_.joinable()) {
+        if (overlay_window_) {
+            overlay_window_->post_status("当前没有可取消的请求。", false);
+        }
+        return;
+    }
+    if (overlay_window_) {
+        overlay_window_->post_request_state("cancelling", "正在取消请求…");
+    }
+    request_thread_.request_stop();
+    assistant_session_->cancel_active_request();
 }
 
 } // namespace wowai::app

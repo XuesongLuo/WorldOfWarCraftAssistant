@@ -11,13 +11,21 @@ Win32 回调中出现的 `HWND` 仅为借用引用，不转移所有权。
 | 窗口类 | `ApplicationShell::WindowClassRegistration` | 析构调用 `UnregisterClassW` | 主窗口销毁后 |
 | 托盘图标 | `ApplicationShell::TrayIcon` | 析构调用 `Shell_NotifyIconW(NIM_DELETE)` | 主窗口销毁前 |
 | 弹出菜单、独占图标 | 创建它的 UI 作用域 | `wil::unique_hmenu`、`wil::unique_hicon` | 当前 UI 操作结束 |
-| Direct3D、DXGI、DirectComposition 等图形接口 | 后续图形组件 | `wil::com_ptr<T>` | 图形组件析构或设备重建 |
-| 只读客户区捕获的 DC 与位图 | `WindowCapture` 当前调用栈 | `wil::unique_hdc`、`wil::unique_hbitmap` | 单帧检测结束或异常展开 |
+| Direct3D、DXGI、DirectComposition 等图形接口 | 覆盖层或 `WindowCapture` 当前调用栈 | `wil::com_ptr<T>` / WinRT 投影对象 | 图形组件析构、单帧结束或设备重建 |
+| Windows Graphics Capture item、frame pool、session 与 frame | `WindowCapture::capture_client` 当前调用栈 | C++/WinRT 值对象；先注销回调，再 `Close` session/pool | 单帧复制完成、超时或异常展开 |
+| CPU BGRA 原始帧 | 截图预处理或 `process_observation_frame` 当前作用域 | `CapturedFrame` 的 `std::vector<uint8_t>` | 预览编码完成或单次观察分类/桥解码完成 |
+| 待确认 PNG 与 Base64 预览 | `ApplicationShell::pending_screenshot_` | `EncodedImage`；丢弃时覆盖缓冲区后释放 | 丢弃、已确认请求复制、窗口切换或应用退出 |
+| App Server 视觉临时文件 | TypeScript `AppServerRuntime` | 随机文件名、应用专属 `vision-temp`；`finally` unlink，启动时清空残留 | turn 成功/失败/取消，或下次启动崩溃清理 |
 | TypeScript Host 进程、匿名管道和 Job Object | `HostProcess` | `wil::unique_handle`；Job 使用 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` | 先关闭 stdin 并限时等待；超时仅终止所属 Job 进程树 |
 | Host stderr 排空线程 | `HostProcess` | `std::thread` | 子进程退出、stderr 管道 EOF 后 join |
 | Codex App Server 子进程 | TypeScript Host；进程树最终由 C++ `HostProcess` Job 拥有 | Node `ChildProcess` + stdin/stdout/stderr 管道 | Host 先关闭 App Server stdin 并限时等待；Host 被终止时 Job 同步清理后代 |
-| 本地问答工作线程 | `ApplicationShell` | `std::jthread` | 退出时先 join，再释放 `AssistantSession` 与覆盖层；同一时刻仅允许一个请求 |
+| 问答工作线程 | `ApplicationShell` | `std::jthread` + `stop_token` | 取消/退出时先请求停止并发送协议 cancel，再 join；随后释放 `AssistantSession` 与覆盖层；同一时刻仅允许一个请求 |
 | 跨线程覆盖层消息 | `OverlayWindow` | 堆分配 JSON + 私有 `WM_APP` 消息 | UI 线程消费后释放；窗口销毁前清空仍排队消息 |
+| 全局快捷键 | `ApplicationShell::GlobalHotkey` | `RegisterHotKey`/`UnregisterHotKey`；替换前注销，冲突时恢复旧绑定 | 设置变化、禁用或应用退出 |
+| 设置窗口 | `ApplicationShell` | 独立非模态 `HWND`，关闭操作只隐藏 | 应用退出时先于主窗口销毁 |
+| SQLite 连接与语句 | `LocalDatabase` / 当前调用栈 | `sqlite3_close_v2` / `sqlite3_finalize`；FULLMUTEX、事务迁移 | 应用退出或语句作用域结束 |
+| DPAPI 凭据明文 | `CredentialStore::write/read` 当前调用栈 | `CryptProtectData`/`CryptUnprotectData`；系统缓冲区释放前清零 | 单次存取结束；磁盘只保留当前用户可解密密文 |
+| 轮转诊断日志 | `SafeLog` | spdlog rotating sink，写入前脱敏，1 MiB×3 | 应用退出或执行本地数据删除前 flush/drop |
 
 退出统一经过主窗口 `WM_DESTROY`：先删除托盘图标，再结束消息循环。后续加入浮层、捕获和
 Codex 子进程时，必须在销毁主窗口之前取消请求、释放图形资源，并只关闭本进程创建的子进程。
@@ -33,6 +41,24 @@ stderr 仍只进入 Host stderr 并设置 64 KiB 上限。Node 子进程继承 C
 STEP-011 中 `ApplicationShell` 唯一拥有 `AssistantSession` 和一个本地问答线程。退出顺序为停止
 UI 接收新输入、等待当前请求、释放会话（从而关闭 Host/Job），最后销毁覆盖层。工作线程不得
 直接访问 WebView2；它只向覆盖层窗口投递拥有型 JSON 消息，由 UI 线程消费或在析构时回收。
+
+STEP-012 中场景与实战教学捕获没有跨 tick 的原始帧所有权：每次 WGC 帧在本地分类和可选桥
+解码后立即析构，不进入请求图片、日志或磁盘。只有玩家逐次确认的 `pending_screenshot_` 会复制
+进请求；Host 仍会重新校验 PNG 签名、SHA-256、大小、匹配当前 provider 的上传目标和逐图同意元数据。持续观察
+摘要会在云端请求前剔除，只有已确认截图可进入模型。观察会话失焦、最小化、
+退出、隐藏状态指示或暂停后停止，并且不会自行恢复。
+
+STEP-019 中异常 Host/App Server 不在原对象上继续复用：活动请求先结束，本应用关闭原 Job，
+随后重新启动并协商一个全新的 Host/App Server 和 conversation ID。恢复只恢复可用性，不自动
+重发可能产生费用的请求。覆盖层收到稳定错误码、是否可重试及具体操作；原始 stderr、provider
+响应、API key 和 Authorization header 不进入 UI。退出或覆盖层销毁前通过 `stop_token` 释放等待，
+仍排队的拥有型 UI 消息由覆盖层析构回收。
+
+STEP-020 中数据库、凭据、日志、截图临时目录和 WebView UI 目录全部由 `ApplicationPaths` 限定
+在应用专属 LocalAppData 根目录内。清理器在执行递归删除前验证每个目标是该根目录的严格后代，
+不接受根目录本身。会话删除启用 SQLite `secure_delete`、WAL 截断和 `VACUUM`；应用启动即清除
+崩溃遗留的 `vision-temp`，运行期 C++ 截图仍只存在内存。执行“删除我的本地数据”前先取消并
+join 活动请求、释放日志文件，再删除受保护凭据和非数据库数据，最后以安全默认值继续运行。
 
 `resources.hpp` 是平台资源类型的统一入口。新代码不得把拥有型裸 `HANDLE`、`HWND` 或 COM
 接口指针存入成员；确需自定义资源时应使用 WIL `unique_any` 或等价的不可复制 RAII 类。

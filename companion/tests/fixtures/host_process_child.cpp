@@ -31,6 +31,14 @@ int wmain(int argc, wchar_t** argv) {
 
     std::string line;
     if (!std::getline(std::cin, line)) return 5;
+    if (mode == L"--handshake") {
+        std::cout << R"({"protocolVersion":"2.0","messageId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","kind":"ready","requestId":null,"sequence":1,"sentAt":"2026-10-03T00:00:00Z","timeoutMs":null,"payload":{"selectedVersion":"2.0","maxMessageBytes":1048576}})"
+                  << '\n'
+                  << std::flush;
+        while (std::getline(std::cin, line)) {
+        }
+        return 0;
+    }
     if (mode == L"--split") {
         const auto middle = line.size() / 2;
         std::cout << line.substr(0, middle) << std::flush;

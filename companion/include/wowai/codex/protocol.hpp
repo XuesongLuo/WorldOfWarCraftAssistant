@@ -31,6 +31,7 @@ struct ImageContext {
     std::string mime_type;
     std::string capture_scope;
     std::string sha256;
+    std::string data_base64;
     bool privacy_mask_applied{};
     bool user_confirmed{};
 };

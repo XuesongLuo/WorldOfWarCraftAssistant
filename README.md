@@ -96,10 +96,19 @@ STEP-010 已实现锁定 App Server 的真实 stdio 启动、initialize、thread
 当前生产工具注册表为空，所有命令、写入、权限、MCP、动态工具、计算机控制及未知事件均被
 阻断。
 
-STEP-011 已选择 Ollama 作为 M0 的单一本地提供方，并接通
-`覆盖层 → C++ → TypeScript Host → Codex App Server → Ollama → 覆盖层`。配置必须一次性提供
-`.env.example` 中的 Node、Host、锁定 Codex 和本地模型变量；提供方只接受无凭据的
-`http://localhost`、`127.0.0.1` 或 `[::1]` origin，不会自动安装、拉取模型或回退云端。示例：
+根据 ADR-017/ADR-018，面向普通玩家的主路径为
+`覆盖层 → C++ → TypeScript Host → 锁定 Codex App Server → 所选云端模型 → 覆盖层`。
+产品不要求玩家电脑安装或运行本地大模型。开发阶段必须显式配置提供方、精确模型、上传总开关
+和凭据；任一缺失都会失败关闭：
+
+当前开发机可把这些值放入被 Git 忽略的 `.env.local`，然后载入当前 PowerShell：
+
+```powershell
+. .\scripts\Import-LocalEnvironment.ps1
+```
+
+脚本只接受云端 provider/model/consent 和对应 API key，不显示密钥值。`.env.local` 中的真实密钥
+不得提交、复制到日志或发到聊天中。
 
 ```powershell
 $env:WOWAI_NODE_BINARY = (Resolve-Path '.\.tools\node\node.exe')
@@ -108,15 +117,52 @@ $env:WOWAI_HOST_WORKING_DIRECTORY = (Resolve-Path '.')
 $env:WOWAI_CODEX_BINARY = 'C:\path\to\locked\codex.exe'
 $env:WOWAI_CODEX_LOCK = (Resolve-Path '.\eng\codex-runtime-lock.json')
 $env:WOWAI_CODEX_ROOT = (Join-Path $env:LOCALAPPDATA 'WorldOfWarcraftAssistant\Codex')
-$env:WOWAI_MODEL_PROVIDER = 'local-ollama'
-$env:WOWAI_LOCAL_MODEL_ENDPOINT = 'http://127.0.0.1:11434'
-$env:WOWAI_LOCAL_MODEL = 'your-installed-model:tag'
+$env:WOWAI_MODEL_PROVIDER = 'deepseek'
+$env:WOWAI_CLOUD_MODEL = 'deepseek-flash'
+$env:WOWAI_CLOUD_UPLOAD_CONSENT = '1'
+$env:DEEPSEEK_API_KEY = 'development-only-key'
 ```
 
-启动前需由用户自行安装 Ollama 和模型。能力探测只调用本机 `/api/version`、`/api/tags` 和
-`/api/show`，异常或畸形回复会安全终止请求。本仓库已经通过自动构建与失败路径测试；当前
-开发机未安装 Ollama，因此断网真实模型对话仍按
-`docs/test-plans/STEP-011-local-model-offline-manual-test.md` 待验收。
+`DEEPSEEK_API_KEY`（或选择 OpenAI 时的 `OPENAI_API_KEY`）只作为开发期临时接线；不得写入
+仓库、日志或普通配置文件。STEP-020 已提供当前 Windows 用户范围的 DPAPI 凭据保险箱；把
+开发期环境变量迁移到保险箱并最小权限注入 Host 属于 STEP-021，在此之前运行时仍读取
+`.env.local`，保险箱内容不会被误当作普通配置。
+DeepSeek 官方 [Responses API](https://api-docs.deepseek.com/guides/responses_api/) 说明其固定
+`base_url` 支持 Codex 所需格式，`deepseek-flash` 支持图片；其他模型只有在提供方注册表明确标记
+视觉能力后才能接收截图。
+
+配置 `.env.local` 后，可分别验证直接 API 和完整 Host/App Server 路径；脚本只输出状态、模型、
+用量或 provider/图片使用标记，不显示密钥：
+
+```powershell
+.\scripts\Test-DeepSeekApi.ps1
+.\scripts\Test-DeepSeekHost.ps1
+```
+
+STEP-012 已实现 Windows Graphics Capture 截图预览。覆盖层中的“附加截图”只捕获当前明确
+选择的 WoW 客户区；可选择遮挡左下聊天区域或使用已人工校准的区域。图片必须在预览中逐次
+确认；确认界面会显示当前提供方、用途和单次同意状态，之后才随下一条图片问题上传。
+场景感知与实战教学均默认关闭，只能显式启动；失焦、最小化、退出或暂停后立即停止且不会
+自动恢复。持续观察只在内存中保留单帧并显示 `screen-observed` 来源、时间与置信度，原始帧和
+派生的屏幕观察摘要都不会自动进入云端请求。正式服、多 DPI 与云端视觉人工验收见
+`docs/test-plans/STEP-012-vision-manual-test.md`。
+
+STEP-019 已完成。默认全局快捷键为 `Ctrl+Shift+Space`，只显示/隐藏助手覆盖层，不向 WoW
+发送输入；可在托盘 `Settings...` 中修改或禁用，冲突时保留原绑定并给出提示。设置页还可即时
+调整覆盖层透明度和字号，并控制默认关闭的完整会话保存。
+
+覆盖层请求超时或取消后不会
+显示迟到回复；Host/App Server 异常时只重建隔离进程与新会话，不会自动重发可能产生费用的
+云端请求。缺少凭据、鉴权失败、精确模型不可用、限流、断网、超时、协议错误和结构异常均有
+独立错误码与操作提示；API key、Authorization header 和 provider 原始错误不会进入 UI 或诊断
+证据。
+
+STEP-020 的本地数据位于 `%LOCALAPPDATA%\WorldOfWarcraftAssistant`：SQLite 设置库采用版本化
+事务迁移，完整会话默认不保存；启用后最多保存最近 100 轮，关闭即清除。凭据保险箱使用 DPAPI
+密文并与数据库分离；诊断日志在写入前脱敏并按 1 MiB、3 个文件轮转；截图保持内存态且启动时
+清理 `vision-temp` 崩溃残留。设置页中的“删除我的本地数据”会清除会话、设置、凭据、临时图、
+日志和旧窗口选择，然后恢复安全默认值。自动验证证据见
+`docs/test-results/STEP-019-020-automated-validation-2026-10-03.md`。
 
 完整 Node/TypeScript 验证：
 
@@ -139,8 +185,9 @@ WoW 插件位于 `addon/WowAIAssistant/`。开发期静态验证执行：
 
 人工验证时将整个 `WowAIAssistant` 目录复制到正式服
 `_retail_/Interface/AddOns/`，不要只复制其中的 Lua 文件。当前 PoC 使用 `/wowai`
-打开或关闭面板；伴侣程序尚未运行时会保持离线占位，不会影响插件加载。正式服验收步骤见
-`docs/test-plans/STEP-005-wow-addon-manual-test.md`。
+打开或关闭可选上下文面板；其中的数据桥必须由玩家明确开启，且始终显示状态和实际传输字段
+预览。插件不探测伴侣程序在线状态，也没有从伴侣程序返回游戏的通道。STEP-012 正式服验收见
+`docs/test-plans/STEP-012-vision-manual-test.md`。
 
 ## 安全提示
 

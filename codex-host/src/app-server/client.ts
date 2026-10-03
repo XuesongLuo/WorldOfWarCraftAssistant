@@ -29,8 +29,10 @@ const SAFE_IGNORED_NOTIFICATIONS = new Set([
   'thread/closed',
   'thread/status/changed',
   'thread/tokenUsage/updated',
+  'account/rateLimits/updated',
   'turn/started',
   'turn/plan/updated',
+  'warning',
   'item/plan/delta',
   'item/reasoning/summaryTextDelta',
   'item/reasoning/summaryPartAdded',
@@ -81,6 +83,7 @@ export interface AppServerClientOptions {
 export class AppServerClient {
   private readonly reader = new JsonLineReader(APP_SERVER_MAX_LINE_BYTES);
   private readonly pending = new Map<AppServerRequestId, PendingRequest>();
+  private readonly abandonedRequestIds = new Set<AppServerRequestId>();
   private readonly turns = new Map<string, TurnState>();
   private readonly cancelledTurns = new Set<string>();
   private readonly requestTimeoutMs: number;
@@ -141,23 +144,28 @@ export class AppServerClient {
     text: string,
     signal: AbortSignal,
     outputSchema?: unknown,
+    imagePaths: string[] = [],
   ): Promise<string> {
     if (signal.aborted) throw abortReason(signal);
     const response = turnResponseSchema.parse(
-      await this.request(
-        'turn/start',
-        {
-          threadId,
-          input: [{ type: 'text', text, text_elements: [] }],
-          approvalPolicy: 'never',
-          approvalsReviewer: 'user',
-          disabledPluginIds: [],
-          ...(outputSchema === undefined ? {} : { outputSchema }),
-        },
-        signal,
-      ),
+      await this.request('turn/start', {
+        threadId,
+        input: [
+          { type: 'text', text, text_elements: [] },
+          ...imagePaths.map((path) => ({ type: 'localImage', path, detail: 'auto' })),
+        ],
+        approvalPolicy: 'never',
+        approvalsReviewer: 'user',
+        disabledPluginIds: [],
+        ...(outputSchema === undefined ? {} : { outputSchema }),
+      }),
     );
     const turnId = response.turn.id;
+    if (abortRequested(signal)) {
+      this.cancelledTurns.add(turnId);
+      void this.request('turn/interrupt', { threadId, turnId }).catch(() => undefined);
+      throw abortReason(signal);
+    }
     const state = this.turnState(turnId, threadId);
     if (state.failure !== undefined) {
       this.turns.delete(turnId);
@@ -199,17 +207,22 @@ export class AppServerClient {
   }
 
   private request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
-    if (this.closed) return Promise.reject(this.fatalError ?? new Error('App Server is closed'));
+    if (this.closed)
+      return Promise.reject(
+        this.fatalError ?? new AppServerUnavailableError('The Codex App Server is closed.'),
+      );
     if (signal?.aborted === true) return Promise.reject(abortReason(signal));
     const id = this.nextRequestId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new AppServerProtocolError(`App Server ${method} timed out`));
+        this.abandonedRequestIds.add(id);
+        reject(new AppServerTimeoutError(method));
       }, this.requestTimeoutMs);
       const onAbort = (): void => {
         clearTimeout(timer);
         this.pending.delete(id);
+        this.abandonedRequestIds.add(id);
         reject(signal === undefined ? new Error('request aborted') : abortReason(signal));
       };
       signal?.addEventListener('abort', onAbort, { once: true });
@@ -236,7 +249,7 @@ export class AppServerClient {
           this.handle(parseAppServerMessage(line));
       }
       this.reader.finish();
-      if (!this.closed) throw new AppServerProtocolError('App Server exited unexpectedly');
+      if (!this.closed) throw new AppServerUnavailableError('App Server exited unexpectedly');
     } catch (error) {
       if (!this.closed) {
         this.fail(asError(error));
@@ -257,15 +270,14 @@ export class AppServerClient {
       return;
     }
     const pending = this.pending.get(message.id);
-    if (pending === undefined) throw new AppServerProtocolError('unmatched App Server response id');
+    if (pending === undefined) {
+      if (this.abandonedRequestIds.delete(message.id)) return;
+      throw new AppServerProtocolError('unmatched App Server response id');
+    }
     clearTimeout(pending.timer);
     this.pending.delete(message.id);
     if ('error' in message) {
-      pending.reject(
-        new AppServerProtocolError(
-          `App Server ${pending.method} failed (${String(message.error.code)}): ${message.error.message}`,
-        ),
-      );
+      pending.reject(new AppServerRequestError(pending.method, message.error));
     } else {
       pending.resolve(message.result);
     }
@@ -327,7 +339,11 @@ export class AppServerClient {
       if (notification.method === 'item/completed' && item.type === 'agentMessage') {
         const text = typeof item.text === 'string' ? item.text : '';
         const state = this.turnState(turnId, threadId);
-        if (state.text.length === 0) state.text = text;
+        if (item.phase === 'final_answer') {
+          state.text = text;
+        } else if (state.text.length === 0) {
+          state.text = text;
+        }
       }
       return;
     }
@@ -405,9 +421,7 @@ export class AppServerClient {
   private finishTurn(turnId: string, state: TurnState): string {
     this.turns.delete(turnId);
     if (state.terminal?.status !== 'completed') {
-      throw new AppServerProtocolError(
-        `Codex turn ended with status ${String(state.terminal?.status)}`,
-      );
+      throw new AppServerTurnError(state.terminal?.status ?? 'unknown', state.terminal?.error);
     }
     if (state.text.length === 0)
       throw new AppServerProtocolError('Codex turn produced no safe text');
@@ -423,12 +437,14 @@ export class AppServerClient {
       pending.reject(error);
     }
     this.pending.clear();
+    this.abandonedRequestIds.clear();
     for (const turnId of this.turns.keys()) this.failTurn(turnId, error);
     this.options.diagnostics?.write(`[codex-app-server] ${error.message}\n`);
   }
 
   private write(message: unknown): void {
-    if (this.closed) throw this.fatalError ?? new Error('App Server is closed');
+    if (this.closed)
+      throw this.fatalError ?? new AppServerUnavailableError('The Codex App Server is closed.');
     const line = JSON.stringify(message);
     if (Buffer.byteLength(line, 'utf8') > APP_SERVER_MAX_LINE_BYTES) {
       throw new AppServerProtocolError('outbound App Server message exceeds limit');
@@ -441,6 +457,42 @@ export class AppServerPolicyError extends Error {
   public constructor(message: string) {
     super(message);
     this.name = 'AppServerPolicyError';
+  }
+}
+
+export class AppServerTimeoutError extends Error {
+  public constructor(public readonly method: string) {
+    super('The Codex App Server request timed out.');
+    this.name = 'AppServerTimeoutError';
+  }
+}
+
+export class AppServerUnavailableError extends Error {
+  public constructor(message = 'The Codex App Server is unavailable.') {
+    super(message);
+    this.name = 'AppServerUnavailableError';
+  }
+}
+
+export class AppServerRequestError extends Error {
+  public constructor(
+    public readonly method: string,
+    public readonly remote: { code: number; message: string; data?: unknown },
+  ) {
+    // The upstream message is intentionally not copied into Error.message: Error.message is logged
+    // by several layers and may contain a credential, request body, or provider diagnostic.
+    super('The Codex App Server rejected a request.');
+    this.name = 'AppServerRequestError';
+  }
+}
+
+export class AppServerTurnError extends Error {
+  public constructor(
+    public readonly status: string,
+    public readonly details: unknown,
+  ) {
+    super('The Codex App Server turn failed.');
+    this.name = 'AppServerTurnError';
   }
 }
 
@@ -459,6 +511,10 @@ function requiredString(value: Record<string, unknown>, key: string): string {
 
 function abortReason(signal: AbortSignal): Error {
   return signal.reason instanceof Error ? signal.reason : new Error('request aborted');
+}
+
+function abortRequested(signal: AbortSignal): boolean {
+  return signal.aborted;
 }
 
 function asError(error: unknown): Error {

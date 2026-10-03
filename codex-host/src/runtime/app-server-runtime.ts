@@ -1,11 +1,20 @@
 import { z } from 'zod';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import type { AssistantRequest, AssistantResponse } from '../protocol/types.js';
 import { PROTOCOL_VERSION } from '../protocol/validation.js';
-import { AppServerClient, AppServerPolicyError } from '../app-server/client.js';
+import {
+  AppServerClient,
+  AppServerPolicyError,
+  AppServerTimeoutError,
+  AppServerUnavailableError,
+} from '../app-server/client.js';
 import { AppServerProtocolError } from '../app-server/protocol.js';
 import type { LocalModelCapabilities, LocalModelConfiguration } from '../local-model/provider.js';
-import { CodexRuntimeFailure } from './errors.js';
+import type { CloudModelConfiguration } from '../cloud-model/provider.js';
+import { classifyCloudModelError, CodexRuntimeFailure } from './errors.js';
 import type { ICodexRuntime } from './mock-runtime.js';
 
 const MAX_SAFE_ANSWER_CHARACTERS = 8_000;
@@ -42,26 +51,41 @@ export class AppServerCodexRuntime implements ICodexRuntime {
     private readonly workspace: string,
     private readonly localModel?: LocalModelConfiguration,
     private readonly capabilityProbe?: CapabilityProbe,
+    private readonly visionTemp?: string,
+    private readonly cloudModel?: CloudModelConfiguration,
   ) {}
 
   public async answer(request: AssistantRequest, signal: AbortSignal): Promise<AssistantResponse> {
-    if (request.images.length > 0) {
+    const localCapabilities = await this.validateProvider(request);
+    const cloudRequest =
+      request.runtime.provider === 'openai' || request.runtime.provider === 'deepseek';
+    if (cloudRequest) this.validateCloudProvider(request);
+    if (request.images.length > 0 && cloudRequest && this.cloudModel?.vision !== true) {
       throw new CodexRuntimeFailure({
         code: 'MODEL_CAPABILITY_MISSING',
-        message: 'STEP-010 supports text turns only.',
+        message: 'The selected cloud model is not registered for image input.',
         retryable: false,
       });
     }
-    const localCapabilities = await this.validateProvider(request);
-    await this.initialize();
-    const threadId = await this.threadFor(request);
+    if (request.images.length > 0 && !cloudRequest && localCapabilities?.vision !== true) {
+      throw new CodexRuntimeFailure({
+        code: 'MODEL_CAPABILITY_MISSING',
+        message: 'The selected provider does not support the confirmed image input.',
+        retryable: false,
+      });
+    }
     let text: string;
+    let imagePaths: string[] = [];
     try {
+      await this.initialize();
+      const threadId = await this.threadFor(request);
+      imagePaths = await this.materializeImages(request);
       text = await this.client.runTurn(
         threadId,
         request.question,
         signal,
-        localCapabilities === undefined ? undefined : structuredAnswerJsonSchema,
+        localCapabilities === undefined && !cloudRequest ? undefined : structuredAnswerJsonSchema,
+        imagePaths,
       );
     } catch (error) {
       if (error instanceof AppServerPolicyError) {
@@ -71,6 +95,27 @@ export class AppServerCodexRuntime implements ICodexRuntime {
           retryable: false,
         });
       }
+      if (signal.aborted) throw error;
+      if (cloudRequest) {
+        const classified = classifyCloudModelError(error);
+        if (classified !== undefined) throw new CodexRuntimeFailure(classified);
+      }
+      if (error instanceof AppServerTimeoutError) {
+        throw new CodexRuntimeFailure({
+          code: 'AI_TIMEOUT',
+          message: 'The Codex App Server request timed out.',
+          retryable: true,
+        });
+      }
+      if (error instanceof AppServerUnavailableError) {
+        this.initializeTask = undefined;
+        this.conversations.clear();
+        throw new CodexRuntimeFailure({
+          code: 'CODEX_START_FAILED',
+          message: 'The Codex App Server exited unexpectedly.',
+          retryable: true,
+        });
+      }
       if (error instanceof AppServerProtocolError) {
         throw new CodexRuntimeFailure({
           code: 'CODEX_PROTOCOL_ERROR',
@@ -78,11 +123,20 @@ export class AppServerCodexRuntime implements ICodexRuntime {
           retryable: false,
         });
       }
+      if (error instanceof z.ZodError) {
+        throw new CodexRuntimeFailure({
+          code: 'CODEX_PROTOCOL_ERROR',
+          message: 'The Codex App Server returned an invalid protocol structure.',
+          retryable: false,
+        });
+      }
       throw error;
+    } finally {
+      await Promise.all(imagePaths.map(async (path) => await unlink(path).catch(() => undefined)));
     }
 
     let answer: z.infer<typeof structuredAnswerSchema>;
-    if (localCapabilities === undefined) {
+    if (localCapabilities === undefined && !cloudRequest) {
       answer = {
         summary: truncate(text, MAX_SAFE_ANSWER_CHARACTERS),
         nextSteps: [],
@@ -96,7 +150,8 @@ export class AppServerCodexRuntime implements ICodexRuntime {
       } catch {
         throw new CodexRuntimeFailure({
           code: 'AI_INVALID_RESPONSE',
-          message: 'The local model returned a response that did not match the required structure.',
+          message:
+            'The selected model returned a response that did not match the required structure.',
           retryable: true,
         });
       }
@@ -116,7 +171,7 @@ export class AppServerCodexRuntime implements ICodexRuntime {
         reason: 'observation was supplied with the player request',
       })),
       usage: {
-        imageUsed: false,
+        imageUsed: request.images.length === 1,
         knowledgeUsed: false,
         screenObservationUsed: request.observations.some(
           (observation) => observation.source === 'screen-observed',
@@ -129,6 +184,40 @@ export class AppServerCodexRuntime implements ICodexRuntime {
       },
       error: null,
     };
+  }
+
+  private async materializeImages(request: AssistantRequest): Promise<string[]> {
+    if (request.images.length === 0) return [];
+    if (this.visionTemp === undefined) {
+      throw new CodexRuntimeFailure({
+        code: 'CAPTURE_DENIED',
+        message: 'The application-owned vision temporary directory is unavailable.',
+        retryable: false,
+      });
+    }
+    await mkdir(this.visionTemp, { recursive: true });
+    const image = request.images[0];
+    if (image === undefined) return [];
+    const bytes = Buffer.from(image.dataBase64, 'base64');
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const png =
+      bytes.length >= 8 &&
+      bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    if (
+      bytes.length === 0 ||
+      bytes.length > 700 * 1024 ||
+      digest !== image.sha256.toLowerCase() ||
+      !png
+    ) {
+      throw new CodexRuntimeFailure({
+        code: 'CAPTURE_EMPTY',
+        message: 'The confirmed screenshot failed integrity or format validation.',
+        retryable: false,
+      });
+    }
+    const path = join(this.visionTemp, `${randomUUID()}.png`);
+    await writeFile(path, bytes, { flag: 'wx', mode: 0o600 });
+    return [path];
   }
 
   public async start(): Promise<void> {
@@ -164,7 +253,14 @@ export class AppServerCodexRuntime implements ICodexRuntime {
   }
 
   private initialize(): Promise<void> {
-    this.initializeTask ??= this.client.initialize();
+    if (this.initializeTask === undefined) {
+      const task = this.client.initialize();
+      const wrapped = task.catch((error: unknown) => {
+        if (this.initializeTask === wrapped) this.initializeTask = undefined;
+        throw error;
+      });
+      this.initializeTask = wrapped;
+    }
     return this.initializeTask;
   }
 
@@ -174,7 +270,9 @@ export class AppServerCodexRuntime implements ICodexRuntime {
     const provider =
       request.runtime.provider === 'local-ollama'
         ? this.localModel?.appServerProviderId
-        : request.runtime.provider;
+        : request.runtime.provider === 'openai' || request.runtime.provider === 'deepseek'
+          ? this.cloudModel?.appServerProviderId
+          : request.runtime.provider;
     const threadId = await this.client.startThread(this.workspace, request.runtime.model, provider);
     this.conversations.set(request.conversationId, threadId);
     return threadId;
@@ -197,6 +295,21 @@ export class AppServerCodexRuntime implements ICodexRuntime {
       });
     }
     return await this.capabilityProbe();
+  }
+
+  private validateCloudProvider(request: AssistantRequest): void {
+    if (
+      this.cloudModel === undefined ||
+      request.runtime.provider !== this.cloudModel.provider ||
+      request.runtime.model !== this.cloudModel.model ||
+      !request.runtime.allowCloudUpload
+    ) {
+      throw new CodexRuntimeFailure({
+        code: 'MODEL_PROVIDER_UNAVAILABLE',
+        message: 'The request does not match the explicitly enabled OpenAI cloud model.',
+        retryable: false,
+      });
+    }
   }
 }
 

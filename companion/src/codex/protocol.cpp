@@ -54,6 +54,20 @@ bool is_uuid(const Json& value) {
     return value.is_string() && std::regex_match(value.get_ref<const std::string&>(), pattern);
 }
 
+bool is_base64(const Json& value) {
+    static const std::regex pattern(R"(^[A-Za-z0-9+/]+={0,2}$)");
+    return is_string_between(value, 12, 956000) &&
+           std::regex_match(value.get_ref<const std::string&>(), pattern) &&
+           value.get_ref<const std::string&>().size() % 4 == 0;
+}
+
+bool is_bridge_field(const Json& value) {
+    return is_one_of(value, {"class", "classId", "specialization", "specializationId", "level",
+                             "zone", "mapId", "activity", "encounterId", "achievementId",
+                             "criteria", "event", "skills", "talents", "actionSlots",
+                             "keyBindings"});
+}
+
 bool is_utc_timestamp(const Json& value) {
     static const std::regex pattern(
         R"(^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$)");
@@ -110,7 +124,8 @@ bool is_error(const Json& value) {
         "CAPTURE_EMPTY",              "PRIVACY_CONFIRM_REQUIRED", "CODEX_NOT_INSTALLED",
         "CODEX_VERSION_MISMATCH",     "CODEX_START_FAILED",       "CODEX_PROTOCOL_ERROR",
         "CODEX_TOOL_BLOCKED",         "MODEL_PROVIDER_UNAVAILABLE", "MODEL_CAPABILITY_MISSING",
-        "AI_AUTH_FAILED",             "AI_RATE_LIMITED",          "AI_TIMEOUT",
+        "AI_CREDENTIALS_MISSING",     "AI_AUTH_FAILED",           "AI_MODEL_UNAVAILABLE",
+        "AI_NETWORK_UNAVAILABLE",     "AI_RATE_LIMITED",          "AI_TIMEOUT",
         "AI_INVALID_RESPONSE",        "KNOWLEDGE_STALE",          "POLICY_BLOCKED",
         "BRIDGE_FRAME_INVALID",       "OBSERVATION_STALE",        "TEACHING_SESSION_INACTIVE"};
     if (!has_exact_keys(value, {"code", "message", "retryable"}) ||
@@ -140,9 +155,15 @@ bool is_answer(const Json& value) {
 } // namespace
 
 ValidationResult validate_assistant_request(const Json& value) {
-    if (!has_exact_keys(value, {"schemaVersion", "requestId", "conversationId", "createdAt", "mode",
-                                "locale", "gameFlavor", "question", "character", "images", "observations",
-                                "privacy", "client", "runtime"})) {
+    const bool has_bridge = value.is_object() && value.contains("visualBridge");
+    if (!(has_bridge
+              ? has_exact_keys(value, {"schemaVersion", "requestId", "conversationId", "createdAt",
+                                       "mode", "locale", "gameFlavor", "question", "character",
+                                       "images", "visualBridge", "observations", "privacy", "client",
+                                       "runtime"})
+              : has_exact_keys(value, {"schemaVersion", "requestId", "conversationId", "createdAt",
+                                       "mode", "locale", "gameFlavor", "question", "character",
+                                       "images", "observations", "privacy", "client", "runtime"}))) {
         return rejected("request fields do not match contract");
     }
     std::size_t question_length = 0;
@@ -170,13 +191,36 @@ ValidationResult validate_assistant_request(const Json& value) {
         return rejected("image list is invalid");
     }
     for (const auto& image : value["images"]) {
-        if (!has_exact_keys(image, {"id", "mimeType", "captureScope", "sha256", "privacyMaskApplied",
-                                    "userConfirmed"}) ||
-            !is_uuid(image["id"]) || !is_one_of(image["mimeType"], {"image/png", "image/jpeg", "image/webp"}) ||
+        if (!has_exact_keys(image, {"id", "mimeType", "captureScope", "sha256", "dataBase64",
+                                    "privacyMaskApplied", "userConfirmed", "uploadDestination",
+                                    "uploadPurpose", "uploadConfirmedAt", "consentNoticeVersion"}) ||
+            !is_uuid(image["id"]) || image["mimeType"] != "image/png" ||
             !is_one_of(image["captureScope"], {"wow-window", "selected-region", "tooltip"}) ||
             !image["sha256"].is_string() || image["sha256"].get_ref<const std::string&>().size() != 64 ||
-            !image["privacyMaskApplied"].is_boolean() || image["userConfirmed"] != true) {
+            !is_base64(image["dataBase64"]) ||
+            !image["privacyMaskApplied"].is_boolean() || image["userConfirmed"] != true ||
+            !is_one_of(image["uploadDestination"], {"openai", "deepseek"}) ||
+            image["uploadPurpose"] != "visual-question" ||
+            !is_utc_timestamp(image["uploadConfirmedAt"]) ||
+            image["consentNoticeVersion"] != 1) {
             return rejected("image context is invalid");
+        }
+    }
+
+    if (has_bridge && !value["visualBridge"].is_null()) {
+        const auto& bridge = value["visualBridge"];
+        if (!has_exact_keys(bridge, {"protocolVersion", "source", "sequence", "capturedAt",
+                                     "confidence", "allowedFields", "unavailableFields"}) ||
+            bridge["protocolVersion"] != 1 || bridge["source"] != "plugin-public" ||
+            !is_nonnegative_integer(bridge["sequence"]) ||
+            bridge["sequence"].get<std::uint64_t>() > UINT32_MAX ||
+            !is_utc_timestamp(bridge["capturedAt"]) || !bridge["confidence"].is_number() ||
+            bridge["confidence"].get<double>() < 0.0 || bridge["confidence"].get<double>() > 1.0 ||
+            !bridge["allowedFields"].is_array() || bridge["allowedFields"].size() > 16 ||
+            !bridge["unavailableFields"].is_array() || bridge["unavailableFields"].size() > 16 ||
+            !std::ranges::all_of(bridge["allowedFields"], is_bridge_field) ||
+            !std::ranges::all_of(bridge["unavailableFields"], is_bridge_field)) {
+            return rejected("visual bridge context is invalid");
         }
     }
 
@@ -213,9 +257,14 @@ ValidationResult validate_assistant_request(const Json& value) {
     const auto& runtime = value["runtime"];
     if (!has_exact_keys(runtime, {"engine", "provider", "model", "allowCloudUpload"}) ||
         runtime["engine"] != "codex" ||
-        !is_one_of(runtime["provider"], {"local-ollama", "local-lmstudio", "openai", "mock"}) ||
+        !is_one_of(runtime["provider"], {"local-ollama", "local-lmstudio", "openai", "deepseek", "mock"}) ||
         !is_string_between(runtime["model"], 1, 128) || !runtime["allowCloudUpload"].is_boolean() ||
-        (runtime["provider"] == "openai" && runtime["allowCloudUpload"] != true)) {
+        ((runtime["provider"] == "openai" || runtime["provider"] == "deepseek") &&
+         runtime["allowCloudUpload"] != true) ||
+        ((runtime["provider"] != "openai" && runtime["provider"] != "deepseek") &&
+         runtime["allowCloudUpload"] != false) ||
+        (!value["images"].empty() &&
+         value["images"][0]["uploadDestination"] != runtime["provider"])) {
         return rejected("runtime context is invalid");
     }
     return accepted();
@@ -256,7 +305,7 @@ ValidationResult validate_assistant_response(const Json& value) {
         !usage["imageUsed"].is_boolean() || !usage["knowledgeUsed"].is_boolean() ||
         !usage["screenObservationUsed"].is_boolean() || !usage["addonBridgeUsed"].is_boolean() ||
         usage["runtime"] != "codex" ||
-        !is_one_of(usage["provider"], {"local-ollama", "local-lmstudio", "openai", "mock"})) {
+        !is_one_of(usage["provider"], {"local-ollama", "local-lmstudio", "openai", "deepseek", "mock"})) {
         return rejected("usage is invalid");
     }
     const bool failed = value["status"] == "failed";
@@ -361,6 +410,7 @@ void from_json(const Json& value, AssistantRequest& request) {
     for (const auto& image : value.at("images")) {
         request.images.push_back({image.at("id").get<std::string>(), image.at("mimeType").get<std::string>(),
                                   image.at("captureScope").get<std::string>(), image.at("sha256").get<std::string>(),
+                                  image.at("dataBase64").get<std::string>(),
                                   image.at("privacyMaskApplied").get<bool>(), image.at("userConfirmed").get<bool>()});
     }
     request.observations = value.at("observations");

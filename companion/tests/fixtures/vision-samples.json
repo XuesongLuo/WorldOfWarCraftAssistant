@@ -1,0 +1,34 @@
+[
+  {
+    "name": "1080p-100-percent",
+    "captureWidth": 1920,
+    "captureHeight": 1080,
+    "dpiScale": 1.0,
+    "expectedWidth": 1920,
+    "expectedHeight": 1080
+  },
+  {
+    "name": "1440p-125-percent",
+    "captureWidth": 2560,
+    "captureHeight": 1440,
+    "dpiScale": 1.25,
+    "expectedWidth": 2048,
+    "expectedHeight": 1152
+  },
+  {
+    "name": "1440p-150-percent",
+    "captureWidth": 2560,
+    "captureHeight": 1440,
+    "dpiScale": 1.5,
+    "expectedWidth": 2048,
+    "expectedHeight": 1152
+  },
+  {
+    "name": "4k-200-percent",
+    "captureWidth": 3840,
+    "captureHeight": 2160,
+    "dpiScale": 2.0,
+    "expectedWidth": 2048,
+    "expectedHeight": 1152
+  }
+]
